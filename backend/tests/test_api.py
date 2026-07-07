@@ -31,6 +31,22 @@ def test_trip_touched_when_stop_added():
     client.delete(f"/api/trips/{tid}")
 
 
+def test_reorder_stops():
+    tid = client.post("/api/trips", json={"name": "Reorder"}).json()["id"]
+    ids = [
+        client.post(f"/api/trips/{tid}/stops", json={"name": n, "lat": 1, "lng": 2}).json()["id"]
+        for n in ["A", "B", "C"]
+    ]
+    new_order = [ids[2], ids[0], ids[1]]
+    r = client.put(f"/api/trips/{tid}/stops/order", json={"order": new_order})
+    assert r.status_code == 200
+    assert [s["id"] for s in r.json()] == new_order
+    # persistiert (list_stops ordert nach reihenfolge)
+    got = client.get(f"/api/trips/{tid}/stops").json()
+    assert [s["id"] for s in got] == new_order
+    client.delete(f"/api/trips/{tid}")
+
+
 def test_trip_and_stop_lifecycle():
     # Trip anlegen
     r = client.post("/api/trips", json={"name": "Norwegen 2026"})

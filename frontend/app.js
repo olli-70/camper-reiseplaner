@@ -97,20 +97,76 @@ function renderMarkers() {
   });
 }
 
-// ---- Liste im Panel ----------------------------------------------------------
+// ---- Liste im Panel (sortierbar + Straßen-km) -------------------------------
+let sortable = null;
+
 function renderList() {
   const ul = document.getElementById("stopList");
+  if (sortable) { sortable.destroy(); sortable = null; }
   ul.innerHTML = "";
-  state.stops.forEach((s) => {
+  state.stops.forEach((s, i) => {
     const li = document.createElement("li");
+    li.className = "stop";
+    li.dataset.id = s.id;
     const lock = s.reserviert ? "🔒 " : "";
-    li.innerHTML = `<span>${lock}${escapeHtml(s.name)}</span><span class="badge ${s.status}">${s.status}</span>`;
-    li.onclick = () => {
+    li.innerHTML =
+      `<span class="drag-handle" title="Ziehen zum Sortieren">⠿</span>` +
+      `<span class="stop-name">${lock}${escapeHtml(s.name)}</span>` +
+      `<span class="badge ${s.status}">${s.status}</span>` +
+      `<span class="leg-dist" data-leg="${i}"></span>`;
+    li.querySelector(".stop-name").onclick = () => {
       map.flyTo({ center: [s.lng, s.lat], zoom: 11 });
       state.markers[s.id]?.togglePopup();
     };
     ul.appendChild(li);
   });
+  if (window.Sortable) {
+    sortable = window.Sortable.create(ul, {
+      handle: ".drag-handle",
+      animation: 150,
+      onEnd: onReorder,
+    });
+  }
+  computeDistances();
+}
+
+// Reihenfolge nach dem Ziehen übernehmen: Zustand + Backend + km aktualisieren
+async function onReorder() {
+  const ul = document.getElementById("stopList");
+  const ids = [...ul.querySelectorAll("li.stop")].map((li) => Number(li.dataset.id));
+  const byId = Object.fromEntries(state.stops.map((s) => [s.id, s]));
+  state.stops = ids.map((id) => byId[id]);
+  try {
+    await api.send("PUT", `/api/trips/${state.tripId}/stops/order`, { order: ids });
+  } catch (e) {
+    alert("Reihenfolge speichern fehlgeschlagen: " + e.message);
+  }
+  setTimeout(renderList, 0); // neu aufbauen -> km passend zur neuen Reihenfolge
+}
+
+// Straßen-Distanzen (km) zwischen aufeinanderfolgenden Stopps via OSRM.
+// Ein /route-Call liefert alle Etappen (legs). Offline/Fehler -> keine km.
+async function computeDistances() {
+  document.querySelectorAll("#stopList .leg-dist").forEach((e) => (e.textContent = ""));
+  const total = document.getElementById("tripTotal");
+  if (total) total.textContent = "";
+  if (state.stops.length < 2) return;
+  const coords = state.stops.map((s) => `${s.lng},${s.lat}`).join(";");
+  try {
+    const r = await fetch(
+      `https://router.project-osrm.org/route/v1/driving/${coords}?overview=false`);
+    const d = await r.json();
+    if (!r.ok || d.code !== "Ok" || !d.routes[0]) return;
+    d.routes[0].legs.forEach((leg, i) => {
+      const el = document.querySelector(`#stopList .leg-dist[data-leg="${i}"]`);
+      if (el) el.textContent = `↓ ${Math.round(leg.distance / 1000)} km`;
+    });
+    if (total) {
+      total.textContent = `Gesamtstrecke: ${Math.round(d.routes[0].distance / 1000)} km (Straße)`;
+    }
+  } catch (_) {
+    /* offline / Routing-Dienst nicht erreichbar -> ohne km */
+  }
 }
 
 // ---- Daten laden -------------------------------------------------------------

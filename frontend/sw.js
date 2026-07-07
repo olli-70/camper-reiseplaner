@@ -1,5 +1,5 @@
 // Service Worker – Offline-Read-Cache (Ansehen offline, Bearbeiten nur online).
-const CACHE = "camper-v7";
+const CACHE = "camper-v8";
 const SHELL = [
   "/",
   "/index.html",
@@ -10,6 +10,7 @@ const SHELL = [
   "/icons/icon-512.png",
   "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js",
   "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css",
+  "https://unpkg.com/sortablejs@1.15.6/Sortable.min.js",
 ];
 
 self.addEventListener("install", (e) => {

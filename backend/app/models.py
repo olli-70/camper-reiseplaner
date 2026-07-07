@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Optional
+from typing import List, Optional
 
 from sqlmodel import Field, SQLModel
 
@@ -78,3 +78,8 @@ class StopUpdate(SQLModel):
     reserviert: Optional[bool] = None
     reserviert_von: Optional[datetime] = None
     reserviert_bis: Optional[datetime] = None
+
+
+class StopOrder(SQLModel):
+    # Neue Reihenfolge als Liste von Stopp-IDs (Index = reihenfolge)
+    order: List[int]

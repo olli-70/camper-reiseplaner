@@ -12,6 +12,7 @@ from .models import (
     STATUS_VALUES,
     Stop,
     StopCreate,
+    StopOrder,
     StopUpdate,
     Trip,
     TripCreate,
@@ -124,6 +125,28 @@ def create_stop(
     session.commit()
     session.refresh(stop)
     return stop
+
+
+@app.put("/api/trips/{trip_id}/stops/order", response_model=List[Stop])
+def reorder_stops(
+    trip_id: int, data: StopOrder, session: Session = Depends(get_session)
+):
+    if not session.get(Trip, trip_id):
+        raise HTTPException(404, "Trip nicht gefunden")
+    stops = {
+        s.id: s
+        for s in session.exec(select(Stop).where(Stop.trip_id == trip_id)).all()
+    }
+    for index, stop_id in enumerate(data.order):
+        stop = stops.get(stop_id)
+        if stop:  # unbekannte/fremde IDs werden ignoriert
+            stop.reihenfolge = index
+            session.add(stop)
+    _touch_trip(session, trip_id)
+    session.commit()
+    return session.exec(
+        select(Stop).where(Stop.trip_id == trip_id).order_by(Stop.reihenfolge, Stop.id)
+    ).all()
 
 
 @app.patch("/api/stops/{stop_id}", response_model=Stop)
