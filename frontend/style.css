@@ -1,0 +1,108 @@
+:root {
+  --geplant: #2563eb;
+  --besucht: #16a34a;
+  --reserviert: #ea580c;
+  --bg: #0f766e;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+#topbar {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .5rem .75rem; background: var(--bg); color: #fff;
+  padding-top: max(.5rem, env(safe-area-inset-top));
+  flex-wrap: wrap;
+}
+#topbar .brand { font-size: 1.05rem; }
+#topbar select, #topbar button {
+  font-size: .9rem; padding: .35rem .5rem; border-radius: 8px;
+  border: none; cursor: pointer;
+}
+#topbar button { background: #ffffff22; color: #fff; }
+#topbar button:hover { background: #ffffff3a; }
+#topbar #addStopBtn.active { background: #fde68a; color: #111; }
+.hint { font-size: .8rem; opacity: .9; }
+
+#map { flex: 1; width: 100%; }
+
+/* Marker */
+.marker {
+  width: 22px; height: 22px; border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg); border: 2px solid #fff;
+  box-shadow: 0 1px 4px #0006; cursor: pointer;
+}
+.marker.geplant { background: var(--geplant); }
+.marker.besucht { background: var(--besucht); }
+.marker.reserviert { background: var(--reserviert); }
+
+/* Seitenpanel */
+#panel {
+  position: absolute; top: 64px; right: 0; z-index: 5;
+  width: 320px; max-width: 85vw; max-height: 70vh; overflow: auto;
+  background: #fff; box-shadow: -2px 2px 10px #0003;
+  border-radius: 10px 0 0 10px;
+}
+#panel.collapsed #panelBody { display: none; }
+#panelToggle {
+  position: sticky; top: 0; float: right; margin: .4rem;
+  border: none; background: var(--bg); color: #fff;
+  border-radius: 8px; padding: .3rem .55rem; cursor: pointer;
+}
+#panelBody { padding: .5rem .75rem 1rem; }
+#tripTitle { margin: .25rem 0 .5rem; font-size: 1.05rem; }
+#stopList { list-style: none; margin: 0; padding: 0; }
+#stopList li {
+  padding: .5rem; border-bottom: 1px solid #eee; cursor: pointer;
+}
+#stopList li:hover { background: #f6f6f6; }
+.badge {
+  display: inline-block; font-size: .7rem; color: #fff;
+  padding: .05rem .4rem; border-radius: 6px; margin-left: .35rem;
+}
+.badge.geplant { background: var(--geplant); }
+.badge.besucht { background: var(--besucht); }
+.badge.reserviert { background: var(--reserviert); }
+.row-actions { margin-top: .3rem; display: flex; gap: .4rem; }
+.row-actions a, .row-actions button {
+  font-size: .75rem; text-decoration: none; padding: .2rem .45rem;
+  border-radius: 6px; border: 1px solid #ccc; background: #fafafa;
+  color: #111; cursor: pointer;
+}
+
+/* Formular */
+#stopForm {
+  position: absolute; inset: 0; z-index: 20;
+  background: #0006; display: flex; align-items: center; justify-content: center;
+}
+#stopForm.hidden { display: none; }
+.form-card {
+  background: #fff; padding: 1rem 1.1rem; border-radius: 12px;
+  width: 320px; max-width: 90vw; box-shadow: 0 6px 24px #0005;
+}
+.form-card h3 { margin: 0 0 .6rem; }
+.form-card label { display: block; font-size: .85rem; margin: .5rem 0; }
+.form-card input, .form-card select, .form-card textarea {
+  width: 100%; padding: .4rem; margin-top: .2rem;
+  border: 1px solid #ccc; border-radius: 8px; font: inherit;
+}
+.coords { font-size: .8rem; color: #555; margin: .5rem 0; }
+.form-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: .5rem; }
+.form-actions .primary { background: var(--bg); color: #fff; border: none; padding: .45rem .9rem; border-radius: 8px; cursor: pointer; }
+.form-actions .ghost { background: #eee; border: none; padding: .45rem .9rem; border-radius: 8px; cursor: pointer; }
+
+.hidden { display: none !important; }
+
+/* Popup-Inhalt */
+.popup h4 { margin: 0 0 .3rem; }
+.popup .nav-links { display: flex; gap: .4rem; margin-top: .5rem; }
+.popup .nav-links a {
+  font-size: .8rem; text-decoration: none; padding: .3rem .5rem;
+  border-radius: 6px; background: var(--bg); color: #fff;
+}
+.popup .edit-links { display: flex; gap: .4rem; margin-top: .4rem; }
+.popup .edit-links button {
+  font-size: .75rem; border: 1px solid #ccc; background: #fafafa;
+  border-radius: 6px; padding: .2rem .45rem; cursor: pointer;
+}

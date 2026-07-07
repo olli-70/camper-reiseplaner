@@ -1,0 +1,50 @@
+import os
+import tempfile
+
+# eigene DB-Datei pro Testlauf, bevor die App-Module importiert werden
+_fd, _path = tempfile.mkstemp(suffix=".db")
+os.close(_fd)
+os.environ["CAMPER_DB"] = _path
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from app.db import init_db  # noqa: E402
+from app.main import app  # noqa: E402
+
+init_db()
+client = TestClient(app)
+
+
+def test_health():
+    assert client.get("/api/health").json() == {"status": "ok"}
+
+
+def test_trip_and_stop_lifecycle():
+    # Trip anlegen
+    r = client.post("/api/trips", json={"name": "Norwegen 2026"})
+    assert r.status_code == 201
+    trip_id = r.json()["id"]
+
+    # Stopp anlegen
+    r = client.post(
+        f"/api/trips/{trip_id}/stops",
+        json={"name": "Preikestolen", "lat": 58.98, "lng": 6.19, "status": "geplant"},
+    )
+    assert r.status_code == 201
+    stop_id = r.json()["id"]
+
+    # Status aktualisieren
+    r = client.patch(f"/api/stops/{stop_id}", json={"status": "besucht"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "besucht"
+
+    # ungültiger Status -> 422
+    assert client.patch(f"/api/stops/{stop_id}", json={"status": "quatsch"}).status_code == 422
+
+    # Liste enthält den Stopp
+    stops = client.get(f"/api/trips/{trip_id}/stops").json()
+    assert len(stops) == 1
+
+    # Löschen
+    assert client.delete(f"/api/stops/{stop_id}").status_code == 204
+    assert client.delete(f"/api/trips/{trip_id}").status_code == 204

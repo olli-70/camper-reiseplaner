@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>Camper-Reiseplaner</title>
+  <meta name="theme-color" content="#0f766e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Camper" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header id="topbar">
+    <strong class="brand">🚐 Reiseplaner</strong>
+    <select id="tripSelect" title="Reise wählen"></select>
+    <button id="newTripBtn" title="Neue Reise">＋ Reise</button>
+    <button id="addStopBtn" title="Stopp per Kartenklick hinzufügen">📍 Stopp</button>
+    <span id="hint" class="hint"></span>
+  </header>
+
+  <div id="map"></div>
+
+  <aside id="panel" class="collapsed">
+    <button id="panelToggle" title="Liste ein-/ausblenden">☰</button>
+    <div id="panelBody">
+      <h2 id="tripTitle">–</h2>
+      <ul id="stopList"></ul>
+    </div>
+  </aside>
+
+  <!-- Formular für Anlegen/Bearbeiten eines Stopps -->
+  <div id="stopForm" class="hidden">
+    <div class="form-card">
+      <h3 id="formTitle">Stopp</h3>
+      <label>Name <input id="f_name" type="text" /></label>
+      <label>Status
+        <select id="f_status">
+          <option value="geplant">geplant</option>
+          <option value="reserviert">reserviert</option>
+          <option value="besucht">besucht</option>
+        </select>
+      </label>
+      <label>Datum <input id="f_datum" type="date" /></label>
+      <label>Notiz <textarea id="f_notiz" rows="3"></textarea></label>
+      <div class="coords">Koordinaten: <span id="f_coords">–</span></div>
+      <div class="form-actions">
+        <button id="f_cancel" class="ghost">Abbrechen</button>
+        <button id="f_save" class="primary">Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
