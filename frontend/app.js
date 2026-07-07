@@ -520,8 +520,23 @@ function buildForm() {
   STOP_FIELDS
     .filter((f) => f.type === "checkbox" && STOP_FIELDS.some((x) => x.showIf === f.key))
     .forEach((f) => {
-      document.getElementById(fieldId(f.key)).onchange = () => applyShowIf(f.key);
+      document.getElementById(fieldId(f.key)).onchange = () => {
+        applyShowIf(f.key);
+        if (f.key === "reserviert") syncStatusFromReserviert();
+      };
     });
+}
+
+// "reserviert"-Checkbox an -> Status auf "reserviert"; aus -> zurück auf
+// "geplant" (nur wenn er auf reserviert stand, "besucht" bleibt erhalten).
+function syncStatusFromReserviert() {
+  const statusEl = document.getElementById("f_status");
+  if (!statusEl) return;
+  if (document.getElementById("f_reserviert").checked) {
+    statusEl.value = "reserviert";
+  } else if (statusEl.value === "reserviert") {
+    statusEl.value = "geplant";
+  }
 }
 
 // abhängige (showIf-)Felder ein-/ausblenden
