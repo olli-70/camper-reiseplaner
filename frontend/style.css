@@ -15,15 +15,22 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   padding-top: max(.5rem, env(safe-area-inset-top));
   flex-wrap: wrap;
 }
-#topbar .brand { font-size: 1.05rem; }
-#topbar select, #topbar button {
-  font-size: .9rem; padding: .35rem .5rem; border-radius: 8px;
-  border: none; cursor: pointer;
+#topbar .brand { font-size: 1.35rem; flex: 0 0 auto; }
+/* Reise-Auswahl = großes Tap-Ziel, füllt die Zeile (schwer zu verfehlen) */
+#tripSelect {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 1rem; padding: .5rem; min-height: 44px;
+  border: none; border-radius: 8px; cursor: pointer;
 }
-#topbar button { background: #ffffff22; color: #fff; }
+#topbar button {
+  font-size: .95rem; padding: .5rem .7rem; border-radius: 8px;
+  border: none; cursor: pointer; min-height: 44px; flex: 0 0 auto;
+  background: #ffffff22; color: #fff; white-space: nowrap;
+}
 #topbar button:hover { background: #ffffff3a; }
-#topbar #addStopBtn.active { background: #fde68a; color: #111; }
-.hint { font-size: .8rem; opacity: .9; }
+/* "＋ Reise" klar abgesetzt, damit es nicht versehentlich getroffen wird */
+#newTripBtn { border: 1px solid #ffffff66; }
+.hint { flex-basis: 100%; font-size: .78rem; opacity: .9; }
 
 #map { flex: 1; width: 100%; }
 

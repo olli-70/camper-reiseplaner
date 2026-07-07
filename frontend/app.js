@@ -89,10 +89,24 @@ function renderMarkers() {
       lock.title = "reserviert";
       el.appendChild(lock);
     }
-    const marker = new maplibregl.Marker({ element: el, anchor: "bottom" })
+    const marker = new maplibregl.Marker({ element: el, anchor: "bottom", draggable: true })
       .setLngLat([s.lng, s.lat])
       .setPopup(new maplibregl.Popup({ offset: 24 }).setDOMContent(stopPopupDOM(s)))
       .addTo(map);
+    // Ort per Marker-Ziehen verschieben -> Koordinaten speichern + km neu
+    marker.on("dragend", async () => {
+      const ll = marker.getLngLat();
+      s.lat = ll.lat;
+      s.lng = ll.lng;
+      try {
+        await api.send("PATCH", `/api/stops/${s.id}`, { lat: s.lat, lng: s.lng });
+      } catch (e) {
+        alert("Verschieben fehlgeschlagen: " + e.message);
+        return;
+      }
+      marker.getPopup().setDOMContent(stopPopupDOM(s)); // Deep-Links aktualisieren
+      computeDistances(); // km/Fahrzeit an neue Position anpassen
+    });
     state.markers[s.id] = marker;
   });
 }
