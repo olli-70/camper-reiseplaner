@@ -191,21 +191,27 @@ async function reverseGeocode(lat, lng) {
   }
 }
 
-// Rückfrage-Dialog -> Promise<boolean>
+// Rückfrage-Dialog mit editierbarem Namen -> Promise<string|null>
+// Liefert den (ggf. korrigierten) Namen bei "Ja", sonst null bei Abbruch.
 function confirmAdd(name) {
   return new Promise((resolve) => {
     const modal = document.getElementById("confirmModal");
-    document.getElementById("confirmText").textContent =
-      `Möchtest du den Ort „${name}“ zu deiner Reise hinzufügen?`;
+    const input = document.getElementById("c_name");
+    input.value = name;
     const ok = document.getElementById("c_ok");
     const cancel = document.getElementById("c_cancel");
     const done = (val) => {
       modal.classList.add("hidden");
-      ok.onclick = null; cancel.onclick = null;
+      ok.onclick = null; cancel.onclick = null; input.onkeydown = null;
       resolve(val);
     };
-    ok.onclick = () => done(true);
-    cancel.onclick = () => done(false);
+    ok.onclick = () => {
+      const v = input.value.trim();
+      if (!v) { input.focus(); return; } // leerer Name nicht erlaubt
+      done(v);
+    };
+    cancel.onclick = () => done(null);
+    input.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); ok.onclick(); } };
     modal.classList.remove("hidden");
   });
 }
@@ -220,10 +226,11 @@ map.on("click", async (e) => {
     (await reverseGeocode(lat, lng)) ||
     `Ort bei ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   hintEl.textContent = HINT;
-  if (!(await confirmAdd(name))) return;
+  const chosenName = await confirmAdd(name);
+  if (!chosenName) return;
   try {
     await api.send("POST", `/api/trips/${state.tripId}/stops`,
-      { name, lat, lng, status: "geplant" });
+      { name: chosenName, lat, lng, status: "geplant" });
     await loadStops();
   } catch (err) {
     alert("Hinzufügen fehlgeschlagen: " + err.message);
