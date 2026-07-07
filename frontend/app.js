@@ -170,7 +170,7 @@ function renderMarkers() {
         fillColor: STATUS_COLORS[s.status] || STATUS_COLORS.geplant,
         fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2, scale: 9,
       },
-      label: s.reserviert ? { text: "🔒", fontSize: "11px" } : undefined,
+      label: { text: s.reserviert ? "✅" : "❓", fontSize: "11px" },
     });
     marker.addListener("click", () => openInfo(s));
     marker.addListener("dragend", async () => {
@@ -251,13 +251,13 @@ function renderList() {
     const li = document.createElement("li");
     li.className = "stop";
     li.dataset.id = s.id;
-    const lock = s.reserviert ? "🔒 " : "";
+    const icon = s.reserviert ? "🚐✅ " : "🚐❓ ";
     const resLine = s.reserviert && (s.reserviert_von || s.reserviert_bis)
-      ? `<span class="stop-res">🔒 Ankunft ${fmtDMHM(s.reserviert_von) || "?"} · Abfahrt ${fmtDMHM(s.reserviert_bis) || "?"}</span>`
+      ? `<span class="stop-res">An: ${fmtDMHM(s.reserviert_von) || "?"} · ab: ${fmtDMHM(s.reserviert_bis) || "?"}</span>`
       : "";
     li.innerHTML =
       `<span class="drag-handle" title="Ziehen zum Sortieren">⠿</span>` +
-      `<span class="stop-name">${lock}${escapeHtml(s.name)}</span>` +
+      `<span class="stop-name">${icon}${escapeHtml(s.name)}</span>` +
       `<span class="badge ${s.status}">${s.status}</span>` +
       resLine +
       `<span class="leg-dist" data-leg="${i}"></span>` +
