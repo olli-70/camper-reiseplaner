@@ -667,6 +667,55 @@ async function forwardGeocode(address) {
   } catch { return null; }
 }
 
+// ---- Ort-Suche (Nominatim) -> als Übernachtungsplatz oder POI hinzufügen -----
+async function doSearch() {
+  const q = document.getElementById("searchInput").value.trim();
+  const box = document.getElementById("searchResults");
+  if (!q) { box.innerHTML = ""; return; }
+  box.innerHTML = `<div class="search-hint">Suche …</div>`;
+  try {
+    const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=de&q="
+      + encodeURIComponent(q);
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    const results = r.ok ? await r.json() : [];
+    if (!results.length) { box.innerHTML = `<div class="search-hint">Nichts gefunden.</div>`; return; }
+    box.innerHTML = "";
+    results.forEach((res) => {
+      const lat = parseFloat(res.lat), lng = parseFloat(res.lon);
+      const short = res.name || String(res.display_name || "").split(",")[0];
+      const row = document.createElement("div");
+      row.className = "search-result";
+      row.innerHTML =
+        `<div class="sr-name">${escapeHtml(res.display_name || short)}</div>` +
+        `<div class="sr-actions">` +
+          `<button data-k="stop" title="Als Übernachtungsplatz hinzufügen">🛏</button>` +
+          `<button data-k="poi" title="Als Punkt (POI) hinzufügen">📍</button>` +
+        `</div>`;
+      row.querySelector(".sr-name").onclick = () => {
+        map.panTo({ lat, lng }); map.setZoom(Math.max(map.getZoom(), 12));
+      };
+      row.querySelector('[data-k="stop"]').onclick = () => addSearchResult(short, lat, lng, "stop");
+      row.querySelector('[data-k="poi"]').onclick = () => addSearchResult(short, lat, lng, "poi");
+      box.appendChild(row);
+    });
+  } catch {
+    box.innerHTML = `<div class="search-hint">Suche fehlgeschlagen.</div>`;
+  }
+}
+
+async function addSearchResult(name, lat, lng, kind) {
+  if (!state.tripId) { alert("Bitte zuerst eine Reise anlegen (＋)."); return; }
+  try {
+    await api.send("POST", `/api/trips/${state.tripId}/stops`,
+      { name, lat, lng, status: "geplant", kind });
+    document.getElementById("searchResults").innerHTML = "";
+    document.getElementById("searchInput").value = "";
+    await loadStops();
+  } catch (e) {
+    alert("Hinzufügen fehlgeschlagen: " + e.message);
+  }
+}
+
 async function saveTourForm() {
   const t = currentTrip();
   if (!t) return;
@@ -725,6 +774,10 @@ document.addEventListener("click", (e) => {
 document.getElementById("tourEditBtn").onclick = openTourForm;
 document.getElementById("t_cancel").onclick = closeTourForm;
 document.getElementById("t_save").onclick = saveTourForm;
+document.getElementById("searchBtn").onclick = doSearch;
+document.getElementById("searchInput").onkeydown = (e) => {
+  if (e.key === "Enter") { e.preventDefault(); doSearch(); }
+};
 document.getElementById("newTripBtn").onclick = async () => {
   const name = prompt("Name der neuen Reise?");
   if (!name) return;
