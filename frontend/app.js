@@ -654,17 +654,48 @@ function openTourForm() {
 }
 function closeTourForm() { document.getElementById("tourForm").classList.add("hidden"); }
 
-// Adresse -> {lat,lng} via Nominatim (kostenlos, kein Key)
-async function forwardGeocode(address) {
+// Google-Geocoder (beste Adressdaten). null bei REQUEST_DENIED/Fehler -> Fallback.
+function googleGeocode(query) {
+  return new Promise((resolve) => {
+    if (!(window.google && google.maps && google.maps.Geocoder)) { resolve(null); return; }
+    try {
+      new google.maps.Geocoder().geocode({ address: query }, (results, status) => {
+        if (status === "OK" && results && results.length) {
+          resolve(results.map((r) => ({
+            display: r.formatted_address,
+            name: String(r.formatted_address).split(",")[0],
+            lat: r.geometry.location.lat(),
+            lng: r.geometry.location.lng(),
+          })));
+        } else {
+          resolve(null); // z.B. Geocoding-API nicht freigeschaltet -> Fallback
+        }
+      });
+    } catch { resolve(null); }
+  });
+}
+
+// Ortssuche: Google zuerst (beste Adressen), sonst OpenStreetMap/Nominatim (gratis).
+async function searchPlaces(query) {
+  const g = await googleGeocode(query);
+  if (g && g.length) return g;
   try {
-    const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=de&q="
-      + encodeURIComponent(address);
+    const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=de&q="
+      + encodeURIComponent(query);
     const r = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!r.ok) return null;
-    const d = await r.json();
-    if (!d.length) return null;
-    return { lat: parseFloat(d[0].lat), lng: parseFloat(d[0].lon) };
-  } catch { return null; }
+    const res = r.ok ? await r.json() : [];
+    return res.map((x) => ({
+      display: x.display_name,
+      name: x.name || String(x.display_name || "").split(",")[0],
+      lat: parseFloat(x.lat), lng: parseFloat(x.lon),
+    }));
+  } catch { return []; }
+}
+
+// Adresse -> {lat,lng} (für Tour-Start/Ziel), gleiche Google-zuerst-Logik.
+async function forwardGeocode(address) {
+  const list = await searchPlaces(address);
+  return list.length ? { lat: list[0].lat, lng: list[0].lng } : null;
 }
 
 // ---- Ort-Suche (Nominatim) -> als Übernachtungsplatz oder POI hinzufügen -----
@@ -673,34 +704,25 @@ async function doSearch() {
   const box = document.getElementById("searchResults");
   if (!q) { box.innerHTML = ""; return; }
   box.innerHTML = `<div class="search-hint">Suche …</div>`;
-  try {
-    const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=de&q="
-      + encodeURIComponent(q);
-    const r = await fetch(url, { headers: { Accept: "application/json" } });
-    const results = r.ok ? await r.json() : [];
-    if (!results.length) { box.innerHTML = `<div class="search-hint">Nichts gefunden.</div>`; return; }
-    box.innerHTML = "";
-    results.forEach((res) => {
-      const lat = parseFloat(res.lat), lng = parseFloat(res.lon);
-      const short = res.name || String(res.display_name || "").split(",")[0];
-      const row = document.createElement("div");
-      row.className = "search-result";
-      row.innerHTML =
-        `<div class="sr-name">${escapeHtml(res.display_name || short)}</div>` +
-        `<div class="sr-actions">` +
-          `<button data-k="stop" title="Als Übernachtungsplatz hinzufügen">🛏</button>` +
-          `<button data-k="poi" title="Als Punkt (POI) hinzufügen">📍</button>` +
-        `</div>`;
-      row.querySelector(".sr-name").onclick = () => {
-        map.panTo({ lat, lng }); map.setZoom(Math.max(map.getZoom(), 12));
-      };
-      row.querySelector('[data-k="stop"]').onclick = () => addSearchResult(short, lat, lng, "stop");
-      row.querySelector('[data-k="poi"]').onclick = () => addSearchResult(short, lat, lng, "poi");
-      box.appendChild(row);
-    });
-  } catch {
-    box.innerHTML = `<div class="search-hint">Suche fehlgeschlagen.</div>`;
-  }
+  const results = await searchPlaces(q);
+  if (!results.length) { box.innerHTML = `<div class="search-hint">Nichts gefunden.</div>`; return; }
+  box.innerHTML = "";
+  results.forEach((res) => {
+    const row = document.createElement("div");
+    row.className = "search-result";
+    row.innerHTML =
+      `<div class="sr-name">${escapeHtml(res.display)}</div>` +
+      `<div class="sr-actions">` +
+        `<button data-k="stop" title="Als Übernachtungsplatz hinzufügen">🛏</button>` +
+        `<button data-k="poi" title="Als Punkt (POI) hinzufügen">📍</button>` +
+      `</div>`;
+    row.querySelector(".sr-name").onclick = () => {
+      map.panTo({ lat: res.lat, lng: res.lng }); map.setZoom(Math.max(map.getZoom(), 12));
+    };
+    row.querySelector('[data-k="stop"]').onclick = () => addSearchResult(res.name, res.lat, res.lng, "stop");
+    row.querySelector('[data-k="poi"]').onclick = () => addSearchResult(res.name, res.lat, res.lng, "poi");
+    box.appendChild(row);
+  });
 }
 
 async function addSearchResult(name, lat, lng, kind) {
