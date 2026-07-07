@@ -144,8 +144,17 @@ async function onReorder() {
   setTimeout(renderList, 0); // neu aufbauen -> km passend zur neuen Reihenfolge
 }
 
-// Straßen-Distanzen (km) zwischen aufeinanderfolgenden Stopps via OSRM.
-// Ein /route-Call liefert alle Etappen (legs). Offline/Fehler -> keine km.
+// Sekunden -> "HH:MM" (Fahrzeit)
+function fmtDur(sec) {
+  const totalMin = Math.round((sec || 0) / 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+// Straßen-Distanzen (km) + Fahrzeit (HH:MM) zwischen aufeinanderfolgenden
+// Stopps via OSRM. Ein /route-Call liefert Etappen (legs) mit distance+duration.
+// Offline/Fehler -> keine Angaben.
 async function computeDistances() {
   document.querySelectorAll("#stopList .leg-dist").forEach((e) => (e.textContent = ""));
   const total = document.getElementById("tripTotal");
@@ -159,10 +168,12 @@ async function computeDistances() {
     if (!r.ok || d.code !== "Ok" || !d.routes[0]) return;
     d.routes[0].legs.forEach((leg, i) => {
       const el = document.querySelector(`#stopList .leg-dist[data-leg="${i}"]`);
-      if (el) el.textContent = `↓ ${Math.round(leg.distance / 1000)} km`;
+      if (el) el.textContent = `↓ ${Math.round(leg.distance / 1000)} km (${fmtDur(leg.duration)})`;
     });
     if (total) {
-      total.textContent = `Gesamtstrecke: ${Math.round(d.routes[0].distance / 1000)} km (Straße)`;
+      const r = d.routes[0];
+      total.textContent =
+        `Gesamtstrecke: ${Math.round(r.distance / 1000)} km (${fmtDur(r.duration)} Fahrzeit)`;
     }
   } catch (_) {
     /* offline / Routing-Dienst nicht erreichbar -> ohne km */
