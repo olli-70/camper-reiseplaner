@@ -144,12 +144,14 @@ async function onReorder() {
   setTimeout(renderList, 0); // neu aufbauen -> km passend zur neuen Reihenfolge
 }
 
-// Sekunden -> "HH:MM" (Fahrzeit)
+// Sekunden -> "1 h 49 min" (bzw. "49 min" / "2 h")
 function fmtDur(sec) {
   const totalMin = Math.round((sec || 0) / 60);
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  if (h && m) return `${h} h ${m} min`;
+  if (h) return `${h} h`;
+  return `${m} min`;
 }
 
 // Straßen-Distanzen (km) + Fahrzeit (HH:MM) zwischen aufeinanderfolgenden
