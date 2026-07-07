@@ -21,9 +21,8 @@ const state = {
   tripId: null,
   stops: [],
   markers: {},        // stopId -> maplibregl.Marker
-  addMode: false,
   editingId: null,    // Stopp-ID beim Bearbeiten, sonst null
-  pendingCoords: null // {lat,lng} beim Neuanlegen
+  pendingCoords: null // Reserve für das Bearbeiten-Formular
 };
 
 // ---- Karte -------------------------------------------------------------------
@@ -169,19 +168,66 @@ async function deleteStop(id) {
   await loadStops();
 }
 
-// ---- Add-Mode: nächster Kartenklick legt Stopp an ---------------------------
-function setAddMode(on) {
-  state.addMode = on;
-  document.getElementById("addStopBtn").classList.toggle("active", on);
-  document.getElementById("hint").textContent = on ? "Auf die Karte tippen, um den Stopp zu setzen" : "";
-  map.getCanvas().style.cursor = on ? "crosshair" : "";
+// ---- Ort per Kartenklick hinzufügen (Reverse-Geocoding + Rückfrage) ----------
+const HINT = "📍 Tippe auf die Karte, um einen Ort hinzuzufügen";
+
+// Kostenloses Reverse-Geocoding via OpenStreetMap Nominatim (kein API-Key).
+// Bei Fehler/offline: null -> Aufrufer fällt auf Koordinaten zurück.
+async function reverseGeocode(lat, lng) {
+  try {
+    const url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2"
+      + `&lat=${lat}&lon=${lng}&zoom=14&accept-language=de`;
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const a = d.address || {};
+    return (
+      d.name || a.tourism || a.attraction || a.camp_site || a.village ||
+      a.town || a.city || a.municipality || a.hamlet || a.suburb ||
+      a.road || (d.display_name ? d.display_name.split(",")[0] : null) || null
+    );
+  } catch {
+    return null;
+  }
 }
-map.on("click", (e) => {
-  if (!state.addMode) return;
-  if (!state.tripId) { alert("Bitte zuerst eine Reise anlegen."); setAddMode(false); return; }
-  state.pendingCoords = { lat: e.lngLat.lat, lng: e.lngLat.lng };
-  setAddMode(false);
-  openForm(null);
+
+// Rückfrage-Dialog -> Promise<boolean>
+function confirmAdd(name) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById("confirmModal");
+    document.getElementById("confirmText").textContent =
+      `Möchtest du den Ort „${name}“ zu deiner Reise hinzufügen?`;
+    const ok = document.getElementById("c_ok");
+    const cancel = document.getElementById("c_cancel");
+    const done = (val) => {
+      modal.classList.add("hidden");
+      ok.onclick = null; cancel.onclick = null;
+      resolve(val);
+    };
+    ok.onclick = () => done(true);
+    cancel.onclick = () => done(false);
+    modal.classList.remove("hidden");
+  });
+}
+
+// Klick auf die Karte: Ort ermitteln -> nachfragen -> anlegen.
+map.on("click", async (e) => {
+  if (!state.tripId) { alert("Bitte zuerst eine Reise anlegen (＋ Reise)."); return; }
+  const { lat, lng } = e.lngLat;
+  const hintEl = document.getElementById("hint");
+  hintEl.textContent = "Ort wird ermittelt …";
+  const name =
+    (await reverseGeocode(lat, lng)) ||
+    `Ort bei ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  hintEl.textContent = HINT;
+  if (!(await confirmAdd(name))) return;
+  try {
+    await api.send("POST", `/api/trips/${state.tripId}/stops`,
+      { name, lat, lng, status: "geplant" });
+    await loadStops();
+  } catch (err) {
+    alert("Hinzufügen fehlgeschlagen: " + err.message);
+  }
 });
 
 // ---- UI-Verdrahtung ----------------------------------------------------------
@@ -198,7 +244,6 @@ document.getElementById("newTripBtn").onclick = async () => {
   state.tripId = trip.id;
   await loadStops();
 };
-document.getElementById("addStopBtn").onclick = () => setAddMode(!state.addMode);
 document.getElementById("f_cancel").onclick = closeForm;
 document.getElementById("f_save").onclick = saveForm;
 document.getElementById("panelToggle").onclick = () =>
@@ -214,4 +259,5 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 }
 
+document.getElementById("hint").textContent = HINT;
 map.on("load", loadTrips);

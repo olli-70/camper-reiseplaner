@@ -18,7 +18,6 @@
     <strong class="brand">🚐 Reiseplaner</strong>
     <select id="tripSelect" title="Reise wählen"></select>
     <button id="newTripBtn" title="Neue Reise">＋ Reise</button>
-    <button id="addStopBtn" title="Stopp per Kartenklick hinzufügen">📍 Stopp</button>
     <span id="hint" class="hint"></span>
   </header>
 
@@ -50,6 +49,18 @@
       <div class="form-actions">
         <button id="f_cancel" class="ghost">Abbrechen</button>
         <button id="f_save" class="primary">Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rückfrage vor dem Hinzufügen eines per Kartenklick gewählten Ortes -->
+  <div id="confirmModal" class="hidden">
+    <div class="form-card">
+      <h3>Ort hinzufügen?</h3>
+      <p id="confirmText">–</p>
+      <div class="form-actions">
+        <button id="c_cancel" class="ghost">Abbrechen</button>
+        <button id="c_ok" class="primary">Ja, hinzufügen</button>
       </div>
     </div>
   </div>

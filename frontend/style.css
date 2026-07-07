@@ -92,6 +92,13 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .form-actions .primary { background: var(--bg); color: #fff; border: none; padding: .45rem .9rem; border-radius: 8px; cursor: pointer; }
 .form-actions .ghost { background: #eee; border: none; padding: .45rem .9rem; border-radius: 8px; cursor: pointer; }
 
+/* Rückfrage-Dialog (nutzt .form-card / .form-actions) */
+#confirmModal {
+  position: absolute; inset: 0; z-index: 25;
+  background: #0006; display: flex; align-items: center; justify-content: center;
+}
+#confirmText { margin: .25rem 0 .75rem; line-height: 1.35; }
+
 .hidden { display: none !important; }
 
 /* Popup-Inhalt */
