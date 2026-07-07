@@ -210,9 +210,10 @@ async function openPoiInfo(poi) {
   const el = document.createElement("div");
   el.className = "popup";
   const stops = state.stops;
+  const noteHtml = poi.notiz ? `<div class="poi-note">${escapeHtml(poi.notiz)}</div>` : "";
   el.innerHTML =
-    `<h4>${escapeHtml(poi.name)} <span class="badge poi">Punkt</span></h4>` +
-    `<div class="edit-links"><button data-act="edit">Bearbeiten</button><button data-act="del">Löschen</button></div>` +
+    `<h4>${escapeHtml(poi.name)} <span class="badge poi">Punkt</span></h4>` + noteHtml +
+    `<div class="edit-links"><button data-act="edit">Bearbeiten / Notiz</button><button data-act="del">Löschen</button></div>` +
     `<div class="poi-dist">${stops.length ? "Entfernungen werden berechnet …" : "Noch keine Übernachtungsplätze."}</div>`;
   el.querySelector('[data-act="edit"]').onclick = () => openForm(poi);
   el.querySelector('[data-act="del"]').onclick = () => deleteStop(poi.id);
@@ -238,6 +239,36 @@ async function openPoiInfo(poi) {
     const box = el.querySelector(".poi-dist");
     if (box) box.textContent = "Entfernungen nicht verfügbar (offline?).";
   }
+}
+
+// ---- POI-Liste im Aufklappmenü ----------------------------------------------
+function renderPoiList() {
+  const ul = document.getElementById("poiList");
+  const count = document.getElementById("poiCount");
+  const section = document.getElementById("poiSection");
+  if (!ul) return;
+  ul.innerHTML = "";
+  if (count) count.textContent = state.pois.length ? `(${state.pois.length})` : "";
+  if (section) section.style.display = state.pois.length ? "" : "none";
+  state.pois.forEach((p) => {
+    const li = document.createElement("li");
+    li.className = "poi-item";
+    const note = p.notiz ? `<div class="poi-note">${escapeHtml(p.notiz)}</div>` : "";
+    li.innerHTML =
+      `<span class="poi-name">📍 ${escapeHtml(p.name)}</span>` +
+      `<span class="poi-actions">` +
+        `<button data-act="edit" title="Bearbeiten / Notiz">✏️</button>` +
+        `<button data-act="del" title="Löschen">🗑</button>` +
+      `</span>` + note;
+    li.querySelector(".poi-name").onclick = () => {
+      map.panTo({ lat: p.lat, lng: p.lng });
+      map.setZoom(Math.max(map.getZoom(), 11));
+      openPoiInfo(p);
+    };
+    li.querySelector('[data-act="edit"]').onclick = () => openForm(p);
+    li.querySelector('[data-act="del"]').onclick = () => deleteStop(p.id);
+    ul.appendChild(li);
+  });
 }
 
 // ---- Liste im Panel (sortierbar + Straßen-km) -------------------------------
@@ -430,6 +461,7 @@ async function loadStops() {
   updatePanelHeader();
   renderMarkers();
   renderList();
+  renderPoiList();
   const pts = [...state.stops, ...state.pois];
   if (pts.length === 1) {
     map.setCenter({ lat: pts[0].lat, lng: pts[0].lng });
@@ -449,11 +481,11 @@ async function loadStops() {
 //   options: nur bei select   default: Vorbelegung bei neuem Stopp
 //   showIf: Schlüssel eines Checkbox-Feldes -> nur sichtbar, wenn dieses an ist
 const STOP_FIELDS = [
-  { key: "name",           label: "Name",           type: "text",     required: true },
+  { key: "name",           label: "Name",           type: "text",     required: true, poi: true },
   { key: "status",         label: "Status",         type: "select",
     options: ["geplant", "reserviert", "besucht"], default: "geplant" },
   { key: "datum",          label: "Datum",          type: "date" },
-  { key: "notiz",          label: "Notiz",          type: "textarea" },
+  { key: "notiz",          label: "Notiz",          type: "textarea", poi: true },
   { key: "reserviert",     label: "reserviert",     type: "checkbox" },
   { key: "reserviert_von", label: "Reserviert von", type: "datetime", showIf: "reserviert" },
   { key: "reserviert_bis", label: "Reserviert bis", type: "datetime", showIf: "reserviert" },
@@ -468,6 +500,7 @@ function buildForm() {
   STOP_FIELDS.forEach((f) => {
     const row = document.createElement("div");
     row.className = "field-row";
+    row.dataset.key = f.key;
     if (f.showIf) row.dataset.showif = f.showIf;
     const id = fieldId(f.key);
     if (f.type === "select") {
@@ -501,13 +534,18 @@ function applyShowIf(controlKey) {
 // ---- Formular öffnen / schließen / speichern --------------------------------
 function openForm(stop) {
   state.editingId = stop ? stop.id : null;
-  document.getElementById("formTitle").textContent = stop ? "Stopp bearbeiten" : "Neuer Stopp";
+  const isPoi = !!(stop && stop.kind === "poi");
+  document.getElementById("formTitle").textContent =
+    stop ? (isPoi ? "Punkt bearbeiten" : "Stopp bearbeiten") : "Neuer Stopp";
   STOP_FIELDS.forEach((f) => {
     const el = document.getElementById(fieldId(f.key));
     const val = stop ? stop[f.key] : undefined;
     if (f.type === "checkbox") el.checked = !!val;
     else if (f.type === "datetime") el.value = toDTLocal(val);
     else el.value = val ?? f.default ?? "";
+    // Bei POIs nur POI-relevante Felder (Name, Notiz) zeigen
+    const row = el.closest(".field-row");
+    if (row) row.style.display = (isPoi && !f.poi) ? "none" : "";
   });
   STOP_FIELDS.filter((f) => f.type === "checkbox").forEach((f) => applyShowIf(f.key));
   const c = stop ? { lat: stop.lat, lng: stop.lng } : state.pendingCoords;
