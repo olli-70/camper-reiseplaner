@@ -19,8 +19,9 @@ const STATUS = ["geplant", "reserviert", "besucht"];
 const state = {
   trips: [],
   tripId: null,
-  stops: [],
-  markers: {},        // stopId -> google.maps.Marker
+  stops: [],          // Übernachtungsplätze (kind="stop") – Liste + Route
+  pois: [],           // reine Punkte (kind="poi") – nur Karte
+  markers: {},        // id -> google.maps.Marker (Stops UND POIs)
   editingId: null,    // Stopp-ID beim Bearbeiten, sonst null
   pendingCoords: null // Reserve für das Bearbeiten-Formular
 };
@@ -93,11 +94,11 @@ async function onMapClick(e) {
   hintEl.textContent = "Ort wird ermittelt …";
   const name = (await reverseGeocode(lat, lng)) || `Ort bei ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   hintEl.textContent = HINT;
-  const chosenName = await confirmAdd(name);
-  if (!chosenName) return;
+  const chosen = await confirmAdd(name);
+  if (!chosen) return;
   try {
     await api.send("POST", `/api/trips/${state.tripId}/stops`,
-      { name: chosenName, lat, lng, status: "geplant" });
+      { name: chosen.name, lat, lng, status: "geplant", kind: chosen.kind });
     await loadStops();
   } catch (err) {
     alert("Hinzufügen fehlgeschlagen: " + err.message);
@@ -155,39 +156,83 @@ function openInfo(s) {
 
 function renderMarkers() {
   clearMarkers();
+  // Übernachtungsplätze: farbige Kreise nach Status, 🔒 bei Reservierung
   state.stops.forEach((s) => {
     const marker = new google.maps.Marker({
-      position: { lat: s.lat, lng: s.lng },
-      map,
-      draggable: true,
-      title: s.name,
+      position: { lat: s.lat, lng: s.lng }, map, draggable: true, title: s.name,
       icon: {
         path: google.maps.SymbolPath.CIRCLE,
         fillColor: STATUS_COLORS[s.status] || STATUS_COLORS.geplant,
-        fillOpacity: 1,
-        strokeColor: "#fff",
-        strokeWeight: 2,
-        scale: 9,
+        fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2, scale: 9,
       },
       label: s.reserviert ? { text: "🔒", fontSize: "11px" } : undefined,
     });
     marker.addListener("click", () => openInfo(s));
-    // Ort per Marker-Ziehen verschieben -> Koordinaten speichern + km neu
     marker.addListener("dragend", async () => {
       const p = marker.getPosition();
-      s.lat = p.lat();
-      s.lng = p.lng();
+      s.lat = p.lat(); s.lng = p.lng();
       try {
         await api.send("PATCH", `/api/stops/${s.id}`, { lat: s.lat, lng: s.lng });
-      } catch (e) {
-        alert("Verschieben fehlgeschlagen: " + e.message);
-        return;
-      }
-      computeDistances(); // km/Fahrzeit an neue Position anpassen
-      if (infoOpenId === s.id) openInfo(s); // Deep-Links aktualisieren
+      } catch (e) { alert("Verschieben fehlgeschlagen: " + e.message); return; }
+      computeDistances();
+      if (infoOpenId === s.id) openInfo(s);
     });
     state.markers[s.id] = marker;
   });
+  // POIs: kleinere violette Punkte; Klick -> Entfernungen zu allen Plätzen
+  state.pois.forEach((p) => {
+    const marker = new google.maps.Marker({
+      position: { lat: p.lat, lng: p.lng }, map, draggable: true, title: p.name,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        fillColor: "#7c3aed", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2, scale: 6,
+      },
+    });
+    marker.addListener("click", () => openPoiInfo(p));
+    marker.addListener("dragend", async () => {
+      const pos = marker.getPosition();
+      p.lat = pos.lat(); p.lng = pos.lng();
+      try {
+        await api.send("PATCH", `/api/stops/${p.id}`, { lat: p.lat, lng: p.lng });
+      } catch (e) { alert("Verschieben fehlgeschlagen: " + e.message); }
+    });
+    state.markers[p.id] = marker;
+  });
+}
+
+// POI-Klick: Entfernungen (Straße) zu ALLEN Übernachtungsplätzen via OSRM /table.
+async function openPoiInfo(poi) {
+  const el = document.createElement("div");
+  el.className = "popup";
+  const stops = state.stops;
+  el.innerHTML =
+    `<h4>${escapeHtml(poi.name)} <span class="badge poi">Punkt</span></h4>` +
+    `<div class="edit-links"><button data-act="edit">Bearbeiten</button><button data-act="del">Löschen</button></div>` +
+    `<div class="poi-dist">${stops.length ? "Entfernungen werden berechnet …" : "Noch keine Übernachtungsplätze."}</div>`;
+  el.querySelector('[data-act="edit"]').onclick = () => openForm(poi);
+  el.querySelector('[data-act="del"]').onclick = () => deleteStop(poi.id);
+  infoWindow.setContent(el);
+  infoWindow.open(map, state.markers[poi.id]);
+  infoOpenId = poi.id;
+  if (!stops.length) return;
+  const coords = [poi, ...stops].map((s) => `${s.lng},${s.lat}`).join(";");
+  try {
+    const r = await fetch(
+      `https://router.project-osrm.org/table/v1/driving/${coords}?sources=0&annotations=distance,duration`);
+    const d = await r.json();
+    if (d.code !== "Ok") throw 0;
+    const dist = d.distances[0], dur = d.durations[0];
+    const rows = stops
+      .map((s, i) => ({ name: s.name, km: dist[i + 1] / 1000, sec: dur[i + 1] }))
+      .sort((a, b) => a.km - b.km)
+      .map((x) => `<div>→ ${escapeHtml(x.name)}: <b>${Math.round(x.km)} km</b> (${fmtDur(x.sec)})</div>`)
+      .join("");
+    const box = el.querySelector(".poi-dist");
+    if (box) box.innerHTML = `<div class="poi-dist-title">Entfernung zu Übernachtungsplätzen:</div>${rows}`;
+  } catch {
+    const box = el.querySelector(".poi-dist");
+    if (box) box.textContent = "Entfernungen nicht verfügbar (offline?).";
+  }
 }
 
 // ---- Liste im Panel (sortierbar + Straßen-km) -------------------------------
@@ -206,7 +251,8 @@ function renderList() {
       `<span class="drag-handle" title="Ziehen zum Sortieren">⠿</span>` +
       `<span class="stop-name">${lock}${escapeHtml(s.name)}</span>` +
       `<span class="badge ${s.status}">${s.status}</span>` +
-      `<span class="leg-dist" data-leg="${i}"></span>`;
+      `<span class="leg-dist" data-leg="${i}"></span>` +
+      `<span class="leg-warn" data-warn="${i}"></span>`;
     li.querySelector(".stop-name").onclick = () => {
       map.panTo({ lat: s.lat, lng: s.lng });
       map.setZoom(Math.max(map.getZoom(), 11));
@@ -253,6 +299,7 @@ function fmtDur(sec) {
 // Offline/Fehler -> keine Angaben.
 async function computeDistances() {
   document.querySelectorAll("#stopList .leg-dist").forEach((e) => (e.textContent = ""));
+  document.querySelectorAll("#stopList .leg-warn").forEach((e) => { e.textContent = ""; e.title = ""; });
   const total = document.getElementById("tripTotal");
   if (total) total.textContent = "";
 
@@ -285,6 +332,24 @@ async function computeDistances() {
         el.textContent = `↓ ${Math.round(incoming.distance / 1000)} km (${fmtDur(incoming.duration)})`;
       }
     });
+
+    // Reservierungs-Warnung: Ende(Vorplatz) + Fahrzeit > Start(nächster Platz)?
+    for (let i = 0; i < state.stops.length - 1; i++) {
+      const a = state.stops[i], b = state.stops[i + 1];
+      const leg = legs[startOffset + i]; // Etappe a -> b
+      if (leg && a.reserviert && a.reserviert_bis && b.reserviert && b.reserviert_von) {
+        const arrival = new Date(a.reserviert_bis).getTime() + leg.duration * 1000;
+        const start = new Date(b.reserviert_von).getTime();
+        if (arrival > start) {
+          const w = document.querySelector(`#stopList .leg-warn[data-warn="${i + 1}"]`);
+          if (w) {
+            w.textContent = "⚠️ Reservierung knapp";
+            w.title = `Abfahrt frühestens ${fmtDT(a.reserviert_bis)} + ${fmtDur(leg.duration)} Fahrt`
+              + ` = Ankunft nach Reservierungsbeginn (${fmtDT(b.reserviert_von)}).`;
+          }
+        }
+      }
+    }
 
     let txt = `Gesamtstrecke: ${Math.round(d.routes[0].distance / 1000)} km (${fmtDur(d.routes[0].duration)} Fahrzeit)`;
     if (hasEnd) {
@@ -350,16 +415,19 @@ async function loadTrips() {
 
 async function loadStops() {
   if (!state.tripId) return;
-  state.stops = await api.get(`/api/trips/${state.tripId}/stops`);
+  const all = await api.get(`/api/trips/${state.tripId}/stops`);
+  state.stops = all.filter((s) => (s.kind || "stop") === "stop"); // Übernachtungsplätze
+  state.pois = all.filter((s) => s.kind === "poi");                // reine Punkte
   updatePanelHeader();
   renderMarkers();
   renderList();
-  if (state.stops.length === 1) {
-    map.setCenter({ lat: state.stops[0].lat, lng: state.stops[0].lng });
+  const pts = [...state.stops, ...state.pois];
+  if (pts.length === 1) {
+    map.setCenter({ lat: pts[0].lat, lng: pts[0].lng });
     map.setZoom(11);
-  } else if (state.stops.length > 1) {
+  } else if (pts.length > 1) {
     const b = new google.maps.LatLngBounds();
-    state.stops.forEach((s) => b.extend({ lat: s.lat, lng: s.lng }));
+    pts.forEach((s) => b.extend({ lat: s.lat, lng: s.lng }));
     map.fitBounds(b, 60);
   }
 }
@@ -504,7 +572,9 @@ function confirmAdd(name) {
   return new Promise((resolve) => {
     const modal = document.getElementById("confirmModal");
     const input = document.getElementById("c_name");
+    const kindSel = document.getElementById("c_kind");
     input.value = name;
+    kindSel.value = "stop";
     const ok = document.getElementById("c_ok");
     const cancel = document.getElementById("c_cancel");
     const done = (val) => {
@@ -515,7 +585,7 @@ function confirmAdd(name) {
     ok.onclick = () => {
       const v = input.value.trim();
       if (!v) { input.focus(); return; } // leerer Name nicht erlaubt
-      done(v);
+      done({ name: v, kind: kindSel.value });
     };
     cancel.onclick = () => done(null);
     input.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); ok.onclick(); } };

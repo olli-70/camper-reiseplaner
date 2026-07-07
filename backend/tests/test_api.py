@@ -37,6 +37,17 @@ def test_trip_touched_when_stop_added():
     client.delete(f"/api/trips/{tid}")
 
 
+def test_poi_kind():
+    tid = client.post("/api/trips", json={"name": "POI"}).json()["id"]
+    r = client.post(f"/api/trips/{tid}/stops", json={"name": "Aussicht", "lat": 1, "lng": 2, "kind": "poi"})
+    assert r.status_code == 201
+    assert r.json()["kind"] == "poi"
+    # Default ist "stop"
+    r2 = client.post(f"/api/trips/{tid}/stops", json={"name": "Platz", "lat": 3, "lng": 4})
+    assert r2.json()["kind"] == "stop"
+    client.delete(f"/api/trips/{tid}")
+
+
 def test_reorder_stops():
     tid = client.post("/api/trips", json={"name": "Reorder"}).json()["id"]
     ids = [

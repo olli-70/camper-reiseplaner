@@ -36,6 +36,7 @@ class Stop(SQLModel, table=True):
     name: str
     lat: float
     lng: float
+    kind: str = "stop"  # "stop" = Übernachtungsplatz (in Liste/Route), "poi" = nur Punkt
     status: str = "geplant"
     notiz: Optional[str] = None
     datum: Optional[date] = None
@@ -72,6 +73,7 @@ class StopCreate(SQLModel):
     name: str
     lat: float
     lng: float
+    kind: str = "stop"
     status: str = "geplant"
     notiz: Optional[str] = None
     datum: Optional[date] = None
@@ -85,6 +87,7 @@ class StopUpdate(SQLModel):
     name: Optional[str] = None
     lat: Optional[float] = None
     lng: Optional[float] = None
+    kind: Optional[str] = None
     status: Optional[str] = None
     notiz: Optional[str] = None
     datum: Optional[date] = None

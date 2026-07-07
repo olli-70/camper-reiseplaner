@@ -55,6 +55,12 @@
       <h3>Ort hinzufügen?</h3>
       <p id="confirmText">Möchtest du diesen Ort zu deiner Reise hinzufügen? Den Namen kannst du anpassen:</p>
       <label>Name <input id="c_name" type="text" /></label>
+      <label>Art
+        <select id="c_kind">
+          <option value="stop">🛏 Übernachtungsplatz</option>
+          <option value="poi">📍 Punkt (nur Karte)</option>
+        </select>
+      </label>
       <div class="form-actions">
         <button id="c_cancel" class="ghost">Abbrechen</button>
         <button id="c_ok" class="primary">Ja, hinzufügen</button>

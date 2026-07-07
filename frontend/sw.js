@@ -1,6 +1,6 @@
 // Service Worker – Offline-Read-Cache (Ansehen offline, Bearbeiten nur online).
 // Hinweis: Die Google-Maps-Karte selbst braucht Netz (kein Offline-Kartenbild).
-const CACHE = "camper-v16";
+const CACHE = "camper-v17";
 const SHELL = [
   "/",
   "/index.html",
