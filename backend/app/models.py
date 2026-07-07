@@ -32,6 +32,9 @@ class Stop(SQLModel, table=True):
     notiz: Optional[str] = None
     datum: Optional[date] = None
     reihenfolge: int = 0
+    reserviert: bool = False
+    reserviert_von: Optional[datetime] = None
+    reserviert_bis: Optional[datetime] = None
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -59,6 +62,9 @@ class StopCreate(SQLModel):
     notiz: Optional[str] = None
     datum: Optional[date] = None
     reihenfolge: int = 0
+    reserviert: bool = False
+    reserviert_von: Optional[datetime] = None
+    reserviert_bis: Optional[datetime] = None
 
 
 class StopUpdate(SQLModel):
@@ -69,3 +75,6 @@ class StopUpdate(SQLModel):
     notiz: Optional[str] = None
     datum: Optional[date] = None
     reihenfolge: Optional[int] = None
+    reserviert: Optional[bool] = None
+    reserviert_von: Optional[datetime] = None
+    reserviert_bis: Optional[datetime] = None

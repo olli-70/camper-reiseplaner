@@ -1,5 +1,5 @@
 // Service Worker – Offline-Read-Cache (Ansehen offline, Bearbeiten nur online).
-const CACHE = "camper-v3";
+const CACHE = "camper-v4";
 const SHELL = [
   "/",
   "/index.html",

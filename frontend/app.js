@@ -39,14 +39,28 @@ map.addControl(new maplibregl.GeolocateControl({ trackUserLocation: true }), "bo
 function appleLink(s) { return `https://maps.apple.com/?daddr=${s.lat},${s.lng}&dirflg=d`; }
 function googleLink(s) { return `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}`; }
 
+// ---- Datum/Uhrzeit-Helfer (datetime-local <-> gespeicherter ISO-Wert) --------
+const toDTLocal = (v) => (v ? String(v).slice(0, 16) : "");            // fürs Eingabefeld
+const fmtDT = (v) => (v ? String(v).slice(0, 16).replace("T", " ") : ""); // für die Anzeige
+
+// von/bis-Felder nur zeigen, wenn "reserviert" angehakt ist
+function toggleResDates() {
+  document.getElementById("resDates").classList.toggle(
+    "hidden", !document.getElementById("f_reserviert").checked);
+}
+
 // ---- Popup-Inhalt eines Stopps ----------------------------------------------
 function stopPopupDOM(s) {
   const el = document.createElement("div");
   el.className = "popup";
   const datum = s.datum ? ` · ${s.datum}` : "";
+  const resInfo = s.reserviert
+    ? `<div class="res-info">🔒 reserviert${s.reserviert_von ? " ab " + fmtDT(s.reserviert_von) : ""}${s.reserviert_bis ? " bis " + fmtDT(s.reserviert_bis) : ""}</div>`
+    : "";
   el.innerHTML = `
     <h4>${escapeHtml(s.name)} <span class="badge ${s.status}">${s.status}</span></h4>
     <div>${escapeHtml(s.notiz || "")}${datum}</div>
+    ${resInfo}
     <div class="nav-links">
       <a href="${appleLink(s)}" target="_blank" rel="noopener">Apple&nbsp;Maps</a>
       <a href="${googleLink(s)}" target="_blank" rel="noopener">Google&nbsp;Maps</a>
@@ -134,6 +148,10 @@ function openForm(stop) {
   document.getElementById("f_status").value = stop ? stop.status : "geplant";
   document.getElementById("f_datum").value = stop && stop.datum ? stop.datum : "";
   document.getElementById("f_notiz").value = stop && stop.notiz ? stop.notiz : "";
+  document.getElementById("f_reserviert").checked = !!(stop && stop.reserviert);
+  document.getElementById("f_res_von").value = stop ? toDTLocal(stop.reserviert_von) : "";
+  document.getElementById("f_res_bis").value = stop ? toDTLocal(stop.reserviert_bis) : "";
+  toggleResDates();
   const c = stop ? { lat: stop.lat, lng: stop.lng } : state.pendingCoords;
   document.getElementById("f_coords").textContent = c ? `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}` : "–";
   document.getElementById("stopForm").classList.remove("hidden");
@@ -143,11 +161,15 @@ function closeForm() {
   state.editingId = null; state.pendingCoords = null;
 }
 async function saveForm() {
+  const reserviert = document.getElementById("f_reserviert").checked;
   const payload = {
     name: document.getElementById("f_name").value.trim(),
     status: document.getElementById("f_status").value,
     datum: document.getElementById("f_datum").value || null,
     notiz: document.getElementById("f_notiz").value.trim() || null,
+    reserviert: reserviert,
+    reserviert_von: reserviert ? (document.getElementById("f_res_von").value || null) : null,
+    reserviert_bis: reserviert ? (document.getElementById("f_res_bis").value || null) : null,
   };
   if (!payload.name) { alert("Bitte einen Namen eingeben."); return; }
   try {
@@ -253,6 +275,7 @@ document.getElementById("newTripBtn").onclick = async () => {
 };
 document.getElementById("f_cancel").onclick = closeForm;
 document.getElementById("f_save").onclick = saveForm;
+document.getElementById("f_reserviert").onchange = toggleResDates;
 document.getElementById("panelToggle").onclick = () =>
   document.getElementById("panel").classList.toggle("collapsed");
 

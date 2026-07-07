@@ -38,6 +38,21 @@ def test_trip_and_stop_lifecycle():
     assert r.status_code == 200
     assert r.json()["status"] == "besucht"
 
+    # Reservierung setzen (Checkbox + von/bis mit Datum+Uhrzeit)
+    r = client.patch(
+        f"/api/stops/{stop_id}",
+        json={
+            "reserviert": True,
+            "reserviert_von": "2026-07-10T14:00",
+            "reserviert_bis": "2026-07-12T11:00",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["reserviert"] is True
+    assert body["reserviert_von"].startswith("2026-07-10T14:00")
+    assert body["reserviert_bis"].startswith("2026-07-12T11:00")
+
     # ungültiger Status -> 422
     assert client.patch(f"/api/stops/{stop_id}", json={"status": "quatsch"}).status_code == 422
 
