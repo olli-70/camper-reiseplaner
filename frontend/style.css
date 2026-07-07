@@ -98,7 +98,7 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 }
 .form-card label.check { display: flex; align-items: center; gap: .5rem; margin: .6rem 0; }
 .form-card label.check input { width: auto; margin: 0; }
-#resDates { border-left: 3px solid var(--reserviert); padding-left: .6rem; margin: .3rem 0; }
+.field-row[data-showif] { border-left: 3px solid var(--reserviert); padding-left: .6rem; margin: .3rem 0; }
 .popup .res-info { margin-top: .35rem; font-size: .8rem; color: var(--reserviert); }
 .coords { font-size: .8rem; color: #555; margin: .5rem 0; }
 .form-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: .5rem; }

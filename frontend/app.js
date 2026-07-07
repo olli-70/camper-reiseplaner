@@ -43,12 +43,6 @@ function googleLink(s) { return `https://www.google.com/maps/dir/?api=1&destinat
 const toDTLocal = (v) => (v ? String(v).slice(0, 16) : "");            // fürs Eingabefeld
 const fmtDT = (v) => (v ? String(v).slice(0, 16).replace("T", " ") : ""); // für die Anzeige
 
-// von/bis-Felder nur zeigen, wenn "reserviert" angehakt ist
-function toggleResDates() {
-  document.getElementById("resDates").classList.toggle(
-    "hidden", !document.getElementById("f_reserviert").checked);
-}
-
 // ---- Popup-Inhalt eines Stopps ----------------------------------------------
 function stopPopupDOM(s) {
   const el = document.createElement("div");
@@ -151,37 +145,98 @@ async function loadStops() {
   }
 }
 
-// ---- Formular (Anlegen/Bearbeiten) ------------------------------------------
+// ---- Formular: zentrale Feld-Konfiguration ----------------------------------
+// NEUES FELD? -> hier EINE Zeile ergänzen (+ passendes Feld im Backend-Modell
+// models.py). Formular-Aufbau, Vorbelegung und Speichern laufen generisch
+// über diese Liste; die DB-Spalte entsteht automatisch (Auto-Migration).
+//   type: text | textarea | select | date | datetime | checkbox
+//   options: nur bei select   default: Vorbelegung bei neuem Stopp
+//   showIf: Schlüssel eines Checkbox-Feldes -> nur sichtbar, wenn dieses an ist
+const STOP_FIELDS = [
+  { key: "name",           label: "Name",           type: "text",     required: true },
+  { key: "status",         label: "Status",         type: "select",
+    options: ["geplant", "reserviert", "besucht"], default: "geplant" },
+  { key: "datum",          label: "Datum",          type: "date" },
+  { key: "notiz",          label: "Notiz",          type: "textarea" },
+  { key: "reserviert",     label: "reserviert",     type: "checkbox" },
+  { key: "reserviert_von", label: "Reserviert von", type: "datetime", showIf: "reserviert" },
+  { key: "reserviert_bis", label: "Reserviert bis", type: "datetime", showIf: "reserviert" },
+];
+
+const fieldId = (key) => "f_" + key;
+
+// Formular einmalig aus der Konfiguration erzeugen.
+function buildForm() {
+  const box = document.getElementById("formFields");
+  box.innerHTML = "";
+  STOP_FIELDS.forEach((f) => {
+    const row = document.createElement("div");
+    row.className = "field-row";
+    if (f.showIf) row.dataset.showif = f.showIf;
+    const id = fieldId(f.key);
+    if (f.type === "select") {
+      const opts = f.options.map((o) => `<option value="${o}">${o}</option>`).join("");
+      row.innerHTML = `<label>${f.label} <select id="${id}">${opts}</select></label>`;
+    } else if (f.type === "textarea") {
+      row.innerHTML = `<label>${f.label} <textarea id="${id}" rows="3"></textarea></label>`;
+    } else if (f.type === "checkbox") {
+      row.innerHTML = `<label class="check"><input id="${id}" type="checkbox" /> ${f.label}</label>`;
+    } else {
+      const t = f.type === "datetime" ? "datetime-local" : f.type; // text | date | datetime-local
+      row.innerHTML = `<label>${f.label} <input id="${id}" type="${t}" /></label>`;
+    }
+    box.appendChild(row);
+  });
+  // Checkbox-Felder, von denen andere abhängen, verdrahten
+  STOP_FIELDS
+    .filter((f) => f.type === "checkbox" && STOP_FIELDS.some((x) => x.showIf === f.key))
+    .forEach((f) => {
+      document.getElementById(fieldId(f.key)).onchange = () => applyShowIf(f.key);
+    });
+}
+
+// abhängige (showIf-)Felder ein-/ausblenden
+function applyShowIf(controlKey) {
+  const on = document.getElementById(fieldId(controlKey)).checked;
+  document.querySelectorAll(`.field-row[data-showif="${controlKey}"]`)
+    .forEach((r) => r.classList.toggle("hidden", !on));
+}
+
+// ---- Formular öffnen / schließen / speichern --------------------------------
 function openForm(stop) {
   state.editingId = stop ? stop.id : null;
   document.getElementById("formTitle").textContent = stop ? "Stopp bearbeiten" : "Neuer Stopp";
-  document.getElementById("f_name").value = stop ? stop.name : "";
-  document.getElementById("f_status").value = stop ? stop.status : "geplant";
-  document.getElementById("f_datum").value = stop && stop.datum ? stop.datum : "";
-  document.getElementById("f_notiz").value = stop && stop.notiz ? stop.notiz : "";
-  document.getElementById("f_reserviert").checked = !!(stop && stop.reserviert);
-  document.getElementById("f_res_von").value = stop ? toDTLocal(stop.reserviert_von) : "";
-  document.getElementById("f_res_bis").value = stop ? toDTLocal(stop.reserviert_bis) : "";
-  toggleResDates();
+  STOP_FIELDS.forEach((f) => {
+    const el = document.getElementById(fieldId(f.key));
+    const val = stop ? stop[f.key] : undefined;
+    if (f.type === "checkbox") el.checked = !!val;
+    else if (f.type === "datetime") el.value = toDTLocal(val);
+    else el.value = val ?? f.default ?? "";
+  });
+  STOP_FIELDS.filter((f) => f.type === "checkbox").forEach((f) => applyShowIf(f.key));
   const c = stop ? { lat: stop.lat, lng: stop.lng } : state.pendingCoords;
   document.getElementById("f_coords").textContent = c ? `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}` : "–";
   document.getElementById("stopForm").classList.remove("hidden");
 }
+
 function closeForm() {
   document.getElementById("stopForm").classList.add("hidden");
   state.editingId = null; state.pendingCoords = null;
 }
+
 async function saveForm() {
-  const reserviert = document.getElementById("f_reserviert").checked;
-  const payload = {
-    name: document.getElementById("f_name").value.trim(),
-    status: document.getElementById("f_status").value,
-    datum: document.getElementById("f_datum").value || null,
-    notiz: document.getElementById("f_notiz").value.trim() || null,
-    reserviert: reserviert,
-    reserviert_von: reserviert ? (document.getElementById("f_res_von").value || null) : null,
-    reserviert_bis: reserviert ? (document.getElementById("f_res_bis").value || null) : null,
-  };
+  const payload = {};
+  STOP_FIELDS.forEach((f) => {
+    const el = document.getElementById(fieldId(f.key));
+    if (f.type === "checkbox") {
+      payload[f.key] = el.checked;
+    } else {
+      const v = typeof el.value === "string" ? el.value.trim() : el.value;
+      payload[f.key] = v || null;
+    }
+  });
+  // abhängige Felder leeren, wenn ihr Steuerfeld aus ist
+  STOP_FIELDS.forEach((f) => { if (f.showIf && !payload[f.showIf]) payload[f.key] = null; });
   if (!payload.name) { alert("Bitte einen Namen eingeben."); return; }
   try {
     if (state.editingId) {
@@ -284,9 +339,9 @@ document.getElementById("newTripBtn").onclick = async () => {
   state.tripId = trip.id;
   await loadStops();
 };
+buildForm(); // Formularfelder aus STOP_FIELDS erzeugen
 document.getElementById("f_cancel").onclick = closeForm;
 document.getElementById("f_save").onclick = saveForm;
-document.getElementById("f_reserviert").onchange = toggleResDates;
 document.getElementById("panelToggle").onclick = () =>
   document.getElementById("panel").classList.toggle("collapsed");
 

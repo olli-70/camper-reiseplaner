@@ -10,24 +10,31 @@ engine = create_engine(
 )
 
 
-# Neue Spalten, die bei einem Upgrade zu einer bereits bestehenden
-# stop-Tabelle ergänzt werden müssen (SQLite create_all ändert keine
-# vorhandenen Tabellen). Additive ALTER TABLE -> Daten bleiben erhalten.
-_STOP_COLUMNS = {
-    "reserviert": "BOOLEAN NOT NULL DEFAULT 0",
-    "reserviert_von": "DATETIME",
-    "reserviert_bis": "DATETIME",
-}
-
-
 def _migrate() -> None:
+    """Additive Auto-Migration: ergänzt jede Spalte, die im Modell existiert,
+    aber in der Tabelle noch fehlt, per ALTER TABLE ADD COLUMN. Spalten werden
+    NULL-fähig hinzugefügt, damit Bestandszeilen unangetastet bleiben.
+
+    Dadurch genügt es, ein neues Feld nur im Modell (models.py) zu ergänzen –
+    die passende Spalte entsteht beim nächsten Start automatisch. SQLite
+    ``create_all`` legt nur fehlende Tabellen an, nicht fehlende Spalten.
+    """
+    from . import models  # noqa: F401  – registriert die Tabellen in der Metadata
+
     with engine.begin() as conn:
-        existing = {
-            row[1] for row in conn.exec_driver_sql("PRAGMA table_info(stop)").fetchall()
-        }
-        for column, ddl in _STOP_COLUMNS.items():
-            if column not in existing:
-                conn.exec_driver_sql(f"ALTER TABLE stop ADD COLUMN {column} {ddl}")
+        for table in SQLModel.metadata.sorted_tables:
+            rows = conn.exec_driver_sql(
+                f'PRAGMA table_info("{table.name}")'
+            ).fetchall()
+            if not rows:
+                continue  # Tabelle existiert noch nicht -> create_all erledigt das
+            existing = {row[1] for row in rows}
+            for col in table.columns:
+                if col.name not in existing:
+                    sqltype = col.type.compile(dialect=engine.dialect)
+                    conn.exec_driver_sql(
+                        f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {sqltype}'
+                    )
 
 
 def init_db() -> None:
