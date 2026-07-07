@@ -37,6 +37,15 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .marker.besucht { background: var(--besucht); }
 .marker.reserviert { background: var(--reserviert); }
 
+/* Marker-Wrapper trägt Pin (gedreht) + aufrechtes Schloss-Badge */
+.marker-wrap { position: relative; width: 22px; height: 22px; cursor: pointer; }
+.marker-lock {
+  position: absolute; top: -11px; right: -11px;
+  font-size: 13px; line-height: 1;
+  filter: drop-shadow(0 1px 1px #0009);
+  pointer-events: none;
+}
+
 /* Seitenpanel */
 #panel {
   position: absolute; top: 64px; right: 0; z-index: 5;

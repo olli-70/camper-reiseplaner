@@ -83,7 +83,17 @@ function renderMarkers() {
   clearMarkers();
   state.stops.forEach((s) => {
     const el = document.createElement("div");
-    el.className = `marker ${s.status}`;
+    el.className = "marker-wrap";
+    const pin = document.createElement("div");
+    pin.className = `marker ${s.status}`;
+    el.appendChild(pin);
+    if (s.reserviert) {
+      const lock = document.createElement("div");
+      lock.className = "marker-lock";
+      lock.textContent = "🔒";
+      lock.title = "reserviert";
+      el.appendChild(lock);
+    }
     const marker = new maplibregl.Marker({ element: el, anchor: "bottom" })
       .setLngLat([s.lng, s.lat])
       .setPopup(new maplibregl.Popup({ offset: 24 }).setDOMContent(stopPopupDOM(s)))
@@ -98,7 +108,8 @@ function renderList() {
   ul.innerHTML = "";
   state.stops.forEach((s) => {
     const li = document.createElement("li");
-    li.innerHTML = `<span>${escapeHtml(s.name)}</span><span class="badge ${s.status}">${s.status}</span>`;
+    const lock = s.reserviert ? "🔒 " : "";
+    li.innerHTML = `<span>${lock}${escapeHtml(s.name)}</span><span class="badge ${s.status}">${s.status}</span>`;
     li.onclick = () => {
       map.flyTo({ center: [s.lng, s.lat], zoom: 11 });
       state.markers[s.id]?.togglePopup();
