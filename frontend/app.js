@@ -113,6 +113,11 @@ function googleLink(s) { return `https://www.google.com/maps/dir/?api=1&destinat
 // ---- Datum/Uhrzeit-Helfer (datetime-local <-> gespeicherter ISO-Wert) --------
 const toDTLocal = (v) => (v ? String(v).slice(0, 16) : "");            // fürs Eingabefeld
 const fmtDT = (v) => (v ? String(v).slice(0, 16).replace("T", " ") : ""); // für die Anzeige
+// "2026-07-20T08:00:00" -> "20.07 08:00"
+const fmtDMHM = (v) => {
+  const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  return m ? `${m[3]}.${m[2]} ${m[4]}:${m[5]}` : "";
+};
 
 // ---- Popup-Inhalt eines Stopps ----------------------------------------------
 function stopPopupDOM(s) {
@@ -247,10 +252,14 @@ function renderList() {
     li.className = "stop";
     li.dataset.id = s.id;
     const lock = s.reserviert ? "🔒 " : "";
+    const resLine = s.reserviert && (s.reserviert_von || s.reserviert_bis)
+      ? `<span class="stop-res">🔒 Ankunft ${fmtDMHM(s.reserviert_von) || "?"} · Abfahrt ${fmtDMHM(s.reserviert_bis) || "?"}</span>`
+      : "";
     li.innerHTML =
       `<span class="drag-handle" title="Ziehen zum Sortieren">⠿</span>` +
       `<span class="stop-name">${lock}${escapeHtml(s.name)}</span>` +
       `<span class="badge ${s.status}">${s.status}</span>` +
+      resLine +
       `<span class="leg-dist" data-leg="${i}"></span>` +
       `<span class="leg-warn" data-warn="${i}"></span>`;
     li.querySelector(".stop-name").onclick = () => {

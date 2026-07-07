@@ -103,6 +103,7 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .stop-name { flex: 1; cursor: pointer; }
 .leg-dist { flex-basis: 100%; font-size: .78rem; color: #666; padding-left: 1.7rem; }
 .leg-dist:empty { display: none; }
+.stop-res { flex-basis: 100%; font-size: .78rem; color: var(--reserviert); padding-left: 1.7rem; }
 .leg-warn { flex-basis: 100%; font-size: .78rem; color: #b91c1c; font-weight: 600; padding-left: 1.7rem; cursor: help; }
 .leg-warn:empty { display: none; }
 .badge.poi { background: #7c3aed; }
