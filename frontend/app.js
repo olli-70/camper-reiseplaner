@@ -51,7 +51,12 @@ function initMap() {
   map = new google.maps.Map(document.getElementById("map"), {
     center: { lat: 51, lng: 10 }, // Mitteleuropa
     zoom: 4,
-    mapTypeControl: false,
+    // Kartentyp-Auswahl (Karte / Satellit / Gelände) als kompaktes Dropdown
+    mapTypeControl: true,
+    mapTypeControlOptions: {
+      style: google.maps.MapTypeControlStyle.DROPDOWN_MENU,
+      position: google.maps.ControlPosition.TOP_RIGHT,
+    },
     streetViewControl: false,
     fullscreenControl: false,
     clickableIcons: false,
