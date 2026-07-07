@@ -16,17 +16,20 @@
 <body>
   <header id="topbar">
     <strong class="brand" title="Camper-Reiseplaner">🚐</strong>
-    <select id="tripSelect" title="Reise wählen"></select>
-    <button id="newTripBtn" title="Neue Reise anlegen">＋ Reise</button>
+    <button id="tourMenuBtn" class="tour-name" title="Tour wechseln"><span id="tourNameLabel">–</span> ▾</button>
+    <button id="tourEditBtn" title="Tour-Einstellungen (Start/Ziel, Datum)">⚙️</button>
+    <button id="newTripBtn" title="Neue Reise anlegen">＋</button>
     <span id="hint" class="hint"></span>
+    <div id="tourMenu" class="hidden"></div>
   </header>
 
   <div id="map"></div>
 
-  <aside id="panel" class="collapsed">
+  <aside id="panel">
     <button id="panelToggle" title="Liste ein-/ausblenden">☰</button>
     <div id="panelBody">
       <h2 id="tripTitle">–</h2>
+      <div id="tripDates" class="trip-dates"></div>
       <div id="tripTotal" class="trip-total"></div>
       <ul id="stopList"></ul>
     </div>
@@ -55,6 +58,23 @@
       <div class="form-actions">
         <button id="c_cancel" class="ghost">Abbrechen</button>
         <button id="c_ok" class="primary">Ja, hinzufügen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tour-Einstellungen: Start-/Zieladresse + Abfahrt/Rückkehr -->
+  <div id="tourForm" class="hidden">
+    <div class="form-card">
+      <h3>Tour-Einstellungen</h3>
+      <label>Name <input id="t_name" type="text" /></label>
+      <label>Startadresse (z.B. Heimat) <input id="t_start" type="text" placeholder="Straße, Ort" /></label>
+      <label>Zieladresse <input id="t_end" type="text" placeholder="leer = wie Start (Rundreise)" /></label>
+      <label>Abfahrt <input id="t_abfahrt" type="date" /></label>
+      <label>Rückkehr <input id="t_rueckkehr" type="date" /></label>
+      <div id="t_status" class="coords"></div>
+      <div class="form-actions">
+        <button id="t_cancel" class="ghost">Abbrechen</button>
+        <button id="t_save" class="primary">Speichern</button>
       </div>
     </div>
   </div>

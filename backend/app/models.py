@@ -16,8 +16,16 @@ class Trip(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     beschreibung: Optional[str] = None
-    start_datum: Optional[date] = None
-    end_datum: Optional[date] = None
+    start_datum: Optional[date] = None   # Abfahrt
+    end_datum: Optional[date] = None     # Rückkehr
+    # Start-/Zieladresse (z.B. Heimatadresse) – nicht in der Orte-Liste, aber in
+    # die Entfernungen einbezogen. Koordinaten werden clientseitig geocodiert.
+    start_address: Optional[str] = None
+    start_lat: Optional[float] = None
+    start_lng: Optional[float] = None
+    end_address: Optional[str] = None
+    end_lat: Optional[float] = None
+    end_lng: Optional[float] = None
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -52,6 +60,12 @@ class TripUpdate(SQLModel):
     beschreibung: Optional[str] = None
     start_datum: Optional[date] = None
     end_datum: Optional[date] = None
+    start_address: Optional[str] = None
+    start_lat: Optional[float] = None
+    start_lng: Optional[float] = None
+    end_address: Optional[str] = None
+    end_lat: Optional[float] = None
+    end_lng: Optional[float] = None
 
 
 class StopCreate(SQLModel):

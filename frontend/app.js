@@ -255,54 +255,103 @@ async function computeDistances() {
   document.querySelectorAll("#stopList .leg-dist").forEach((e) => (e.textContent = ""));
   const total = document.getElementById("tripTotal");
   if (total) total.textContent = "";
-  if (state.stops.length < 2) return;
-  const coords = state.stops.map((s) => `${s.lng},${s.lat}`).join(";");
+
+  const t = currentTrip() || {};
+  const hasStart = t.start_lat != null && t.start_lng != null;
+  const hasEnd = t.end_lat != null && t.end_lng != null;
+
+  // Routenpunkte: [Start?] + Stops + [Ziel?]
+  const pts = [];
+  if (hasStart) pts.push({ lat: t.start_lat, lng: t.start_lng });
+  state.stops.forEach((s) => pts.push({ lat: s.lat, lng: s.lng }));
+  if (hasEnd) pts.push({ lat: t.end_lat, lng: t.end_lng });
+  if (pts.length < 2) return;
+
+  const coords = pts.map((p) => `${p.lng},${p.lat}`).join(";");
   try {
     const r = await fetch(
       `https://router.project-osrm.org/route/v1/driving/${coords}?overview=false`);
     const d = await r.json();
     if (!r.ok || d.code !== "Ok" || !d.routes[0]) return;
-    d.routes[0].legs.forEach((leg, i) => {
+    const legs = d.routes[0].legs;        // Länge = pts.length - 1
+    const startOffset = hasStart ? 1 : 0; // Index von Stop 0 innerhalb von pts
+
+    // Jeder Stopp zeigt die EINGEHENDE Etappe (vom vorherigen Punkt) ->
+    // bei gesetztem Start zeigt der 1. Ort "Abfahrtsort -> 1. Ort".
+    state.stops.forEach((s, i) => {
+      const incoming = legs[startOffset + i - 1];
       const el = document.querySelector(`#stopList .leg-dist[data-leg="${i}"]`);
-      if (el) el.textContent = `↓ ${Math.round(leg.distance / 1000)} km (${fmtDur(leg.duration)})`;
+      if (el && incoming) {
+        el.textContent = `↓ ${Math.round(incoming.distance / 1000)} km (${fmtDur(incoming.duration)})`;
+      }
     });
-    if (total) {
-      const r = d.routes[0];
-      total.textContent =
-        `Gesamtstrecke: ${Math.round(r.distance / 1000)} km (${fmtDur(r.duration)} Fahrzeit)`;
+
+    let txt = `Gesamtstrecke: ${Math.round(d.routes[0].distance / 1000)} km (${fmtDur(d.routes[0].duration)} Fahrzeit)`;
+    if (hasEnd) {
+      const back = legs[legs.length - 1]; // letzter Ort -> Ziel
+      txt += ` · Rückweg zum Ziel: ${Math.round(back.distance / 1000)} km (${fmtDur(back.duration)})`;
     }
+    if (total) total.textContent = txt;
   } catch (_) {
     /* offline / Routing-Dienst nicht erreichbar -> ohne km */
   }
 }
 
+// ---- Touren / Panel-Kopf -----------------------------------------------------
+function currentTrip() {
+  return state.trips.find((t) => t.id == state.tripId) || null;
+}
+
+function renderTourMenu() {
+  const menu = document.getElementById("tourMenu");
+  menu.innerHTML = "";
+  state.trips.forEach((t) => {
+    const b = document.createElement("button");
+    b.className = "tour-menu-item" + (t.id === state.tripId ? " active" : "");
+    b.textContent = t.name;
+    b.onclick = () => { menu.classList.add("hidden"); selectTrip(t.id); };
+    menu.appendChild(b);
+  });
+}
+
+function updatePanelHeader() {
+  const t = currentTrip();
+  document.getElementById("tourNameLabel").textContent = t ? t.name : "–";
+  document.getElementById("tripTitle").textContent = t ? t.name : "–";
+  const dd = document.getElementById("tripDates");
+  if (dd) {
+    dd.textContent = t && (t.start_datum || t.end_datum)
+      ? `🗓 Abfahrt ${t.start_datum || "?"} · Rückkehr ${t.end_datum || "?"}` : "";
+  }
+}
+
+async function selectTrip(id) {
+  state.tripId = id;
+  await loadStops();
+  renderTourMenu();
+}
+
 // ---- Daten laden -------------------------------------------------------------
 async function loadTrips() {
   state.trips = await api.get("/api/trips");
-  const sel = document.getElementById("tripSelect");
-  sel.innerHTML = "";
-  state.trips.forEach((t) => {
-    const o = document.createElement("option");
-    o.value = t.id; o.textContent = t.name;
-    sel.appendChild(o);
-  });
   if (state.trips.length) {
     // Default: zuletzt beplante Reise (jüngstes updated_at)
     const latest = state.trips.reduce((a, b) =>
       (b.updated_at || "") > (a.updated_at || "") ? b : a);
     state.tripId = latest.id;
-    sel.value = state.tripId;
     await loadStops();
   } else {
-    document.getElementById("tripTitle").textContent = "Noch keine Reise – ＋ Reise";
+    state.tripId = null;
+    document.getElementById("tourNameLabel").textContent = "Keine Reise";
+    document.getElementById("tripTitle").textContent = "Noch keine Reise – ＋";
   }
+  renderTourMenu();
 }
 
 async function loadStops() {
   if (!state.tripId) return;
   state.stops = await api.get(`/api/trips/${state.tripId}/stops`);
-  const trip = state.trips.find((t) => t.id == state.tripId);
-  document.getElementById("tripTitle").textContent = trip ? trip.name : "–";
+  updatePanelHeader();
   renderMarkers();
   renderList();
   if (state.stops.length === 1) {
@@ -474,19 +523,96 @@ function confirmAdd(name) {
   });
 }
 
+// ---- Tour-Einstellungen (Start-/Zieladresse + Datum) ------------------------
+function openTourForm() {
+  const t = currentTrip();
+  if (!t) { alert("Bitte zuerst eine Reise anlegen (＋)."); return; }
+  document.getElementById("t_name").value = t.name || "";
+  document.getElementById("t_start").value = t.start_address || "";
+  document.getElementById("t_end").value = t.end_address || "";
+  document.getElementById("t_abfahrt").value = t.start_datum || "";
+  document.getElementById("t_rueckkehr").value = t.end_datum || "";
+  document.getElementById("t_status").textContent = "";
+  document.getElementById("tourForm").classList.remove("hidden");
+}
+function closeTourForm() { document.getElementById("tourForm").classList.add("hidden"); }
+
+// Adresse -> {lat,lng} via Nominatim (kostenlos, kein Key)
+async function forwardGeocode(address) {
+  try {
+    const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=de&q="
+      + encodeURIComponent(address);
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (!d.length) return null;
+    return { lat: parseFloat(d[0].lat), lng: parseFloat(d[0].lon) };
+  } catch { return null; }
+}
+
+async function saveTourForm() {
+  const t = currentTrip();
+  if (!t) return;
+  const name = document.getElementById("t_name").value.trim();
+  if (!name) { alert("Bitte einen Namen eingeben."); return; }
+  const startAddr = document.getElementById("t_start").value.trim();
+  let endAddr = document.getElementById("t_end").value.trim();
+  if (!endAddr && startAddr) endAddr = startAddr; // leer = Rundreise (Ziel = Start)
+  const statusEl = document.getElementById("t_status");
+  const payload = {
+    name,
+    start_datum: document.getElementById("t_abfahrt").value || null,
+    end_datum: document.getElementById("t_rueckkehr").value || null,
+    start_address: startAddr || null,
+    end_address: endAddr || null,
+    start_lat: null, start_lng: null, end_lat: null, end_lng: null,
+  };
+  // Geocodieren; unveränderte Adressen behalten ihre vorhandenen Koordinaten.
+  if (startAddr) {
+    let g = (startAddr === t.start_address && t.start_lat != null)
+      ? { lat: t.start_lat, lng: t.start_lng } : null;
+    if (!g) { statusEl.textContent = "Startadresse wird gesucht …"; g = await forwardGeocode(startAddr); }
+    if (!g) { statusEl.textContent = "⚠️ Startadresse nicht gefunden"; return; }
+    payload.start_lat = g.lat; payload.start_lng = g.lng;
+  }
+  if (endAddr) {
+    let g = (endAddr === t.end_address && t.end_lat != null) ? { lat: t.end_lat, lng: t.end_lng }
+      : (endAddr === startAddr && payload.start_lat != null) ? { lat: payload.start_lat, lng: payload.start_lng }
+      : null;
+    if (!g) { statusEl.textContent = "Zieladresse wird gesucht …"; g = await forwardGeocode(endAddr); }
+    if (!g) { statusEl.textContent = "⚠️ Zieladresse nicht gefunden"; return; }
+    payload.end_lat = g.lat; payload.end_lng = g.lng;
+  }
+  try {
+    await api.send("PATCH", `/api/trips/${t.id}`, payload);
+    Object.assign(t, payload); // lokalen Trip-Cache aktualisieren
+    closeTourForm();
+    updatePanelHeader();
+    renderTourMenu();
+    computeDistances();
+  } catch (e) { statusEl.textContent = "Speichern fehlgeschlagen: " + e.message; }
+}
+
 // ---- UI-Verdrahtung ----------------------------------------------------------
-document.getElementById("tripSelect").onchange = async (e) => {
-  state.tripId = Number(e.target.value);
-  await loadStops();
+document.getElementById("tourMenuBtn").onclick = (e) => {
+  e.stopPropagation();
+  document.getElementById("tourMenu").classList.toggle("hidden");
 };
+document.addEventListener("click", (e) => {
+  const menu = document.getElementById("tourMenu");
+  const btn = document.getElementById("tourMenuBtn");
+  if (!menu.classList.contains("hidden") && !menu.contains(e.target) && !btn.contains(e.target)) {
+    menu.classList.add("hidden");
+  }
+});
+document.getElementById("tourEditBtn").onclick = openTourForm;
+document.getElementById("t_cancel").onclick = closeTourForm;
+document.getElementById("t_save").onclick = saveTourForm;
 document.getElementById("newTripBtn").onclick = async () => {
   const name = prompt("Name der neuen Reise?");
   if (!name) return;
-  const trip = await api.send("POST", "/api/trips", { name: name.trim() });
-  await loadTrips();
-  document.getElementById("tripSelect").value = trip.id;
-  state.tripId = trip.id;
-  await loadStops();
+  await api.send("POST", "/api/trips", { name: name.trim() });
+  await loadTrips(); // lädt neu, wählt die neueste (= neue) Reise
 };
 buildForm(); // Formularfelder aus STOP_FIELDS erzeugen
 document.getElementById("f_cancel").onclick = closeForm;

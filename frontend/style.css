@@ -13,7 +13,7 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   display: flex; align-items: center; gap: .5rem;
   padding: .5rem .75rem; background: var(--bg); color: #fff;
   padding-top: max(.5rem, env(safe-area-inset-top));
-  flex-wrap: wrap;
+  flex-wrap: wrap; position: relative;
 }
 #topbar .brand { font-size: 1.35rem; flex: 0 0 auto; }
 /* Reise-Auswahl = großes Tap-Ziel, füllt die Zeile (schwer zu verfehlen) */
@@ -28,9 +28,30 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   background: #ffffff22; color: #fff; white-space: nowrap;
 }
 #topbar button:hover { background: #ffffff3a; }
-/* "＋ Reise" klar abgesetzt, damit es nicht versehentlich getroffen wird */
+/* "＋" klar abgesetzt, damit es nicht versehentlich getroffen wird */
 #newTripBtn { border: 1px solid #ffffff66; }
 .hint { flex-basis: 100%; font-size: .78rem; opacity: .9; }
+
+/* Tour-Name-Button (öffnet das Tour-Menü) */
+.tour-name {
+  flex: 1 1 auto; min-width: 0; text-align: left; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Tour-Auswahlmenü */
+#tourMenu {
+  position: absolute; top: 100%; left: .5rem; z-index: 30;
+  background: #fff; color: #111; border-radius: 8px;
+  box-shadow: 0 4px 14px #0004; min-width: 200px; max-width: 80vw;
+  max-height: 60vh; overflow: auto; padding: .25rem; margin-top: .25rem;
+}
+.tour-menu-item {
+  display: block; width: 100%; text-align: left; background: none;
+  border: none; color: #111; padding: .55rem .6rem; border-radius: 6px;
+  cursor: pointer; font-size: .95rem;
+}
+.tour-menu-item:hover { background: #f2f2f2; }
+.tour-menu-item.active { background: var(--bg); color: #fff; }
+.trip-dates { font-size: .8rem; color: #555; margin: 0 0 .4rem; }
 
 #map { flex: 1; width: 100%; }
 
@@ -133,8 +154,8 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .form-actions .primary { background: var(--bg); color: #fff; border: none; padding: .45rem .9rem; border-radius: 8px; cursor: pointer; }
 .form-actions .ghost { background: #eee; border: none; padding: .45rem .9rem; border-radius: 8px; cursor: pointer; }
 
-/* Rückfrage-Dialog (nutzt .form-card / .form-actions) */
-#confirmModal {
+/* Modale Overlays (nutzen .form-card / .form-actions) */
+#confirmModal, #tourForm {
   position: absolute; inset: 0; z-index: 25;
   background: #0006; display: flex; align-items: center; justify-content: center;
 }
