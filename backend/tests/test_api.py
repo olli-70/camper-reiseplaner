@@ -19,6 +19,18 @@ def test_health():
     assert client.get("/api/health").json() == {"status": "ok"}
 
 
+def test_trip_touched_when_stop_added():
+    import time
+
+    tid = client.post("/api/trips", json={"name": "Touch-Test"}).json()["id"]
+    before = client.get(f"/api/trips/{tid}").json()["updated_at"]
+    time.sleep(0.01)
+    client.post(f"/api/trips/{tid}/stops", json={"name": "S", "lat": 1, "lng": 2})
+    after = client.get(f"/api/trips/{tid}").json()["updated_at"]
+    assert after > before  # Reise wird als 'zuletzt beplant' markiert
+    client.delete(f"/api/trips/{tid}")
+
+
 def test_trip_and_stop_lifecycle():
     # Trip anlegen
     r = client.post("/api/trips", json={"name": "Norwegen 2026"})

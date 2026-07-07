@@ -36,7 +36,8 @@ map.addControl(new maplibregl.NavigationControl(), "bottom-right");
 map.addControl(new maplibregl.GeolocateControl({ trackUserLocation: true }), "bottom-right");
 
 // ---- Deep-Links --------------------------------------------------------------
-function appleLink(s) { return `https://maps.apple.com/?daddr=${s.lat},${s.lng}&dirflg=d`; }
+// Orts-Pin (zentriert auf den gewählten Ort). "Route" ist in Apple Maps ein Tipp entfernt.
+function appleLink(s) { return `https://maps.apple.com/?ll=${s.lat},${s.lng}&q=${encodeURIComponent(s.name)}`; }
 function googleLink(s) { return `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}`; }
 
 // ---- Datum/Uhrzeit-Helfer (datetime-local <-> gespeicherter ISO-Wert) --------
@@ -123,7 +124,10 @@ async function loadTrips() {
     sel.appendChild(o);
   });
   if (state.trips.length) {
-    state.tripId = state.trips[0].id;
+    // Default: zuletzt beplante Reise (jüngstes updated_at)
+    const latest = state.trips.reduce((a, b) =>
+      (b.updated_at || "") > (a.updated_at || "") ? b : a);
+    state.tripId = latest.id;
     sel.value = state.tripId;
     await loadStops();
   } else {

@@ -102,6 +102,15 @@ def list_stops(trip_id: int, session: Session = Depends(get_session)):
     ).all()
 
 
+def _touch_trip(session: Session, trip_id: int) -> None:
+    """Markiert die Reise als 'zuletzt beplant' (updated_at) – z.B. wenn ein
+    Stopp hinzukommt/sich ändert. Das Frontend wählt darüber die Default-Reise."""
+    trip = session.get(Trip, trip_id)
+    if trip:
+        trip.updated_at = datetime.utcnow()
+        session.add(trip)
+
+
 @app.post("/api/trips/{trip_id}/stops", response_model=Stop, status_code=201)
 def create_stop(
     trip_id: int, data: StopCreate, session: Session = Depends(get_session)
@@ -111,6 +120,7 @@ def create_stop(
     _validate_status(data.status)
     stop = Stop.model_validate(data, update={"trip_id": trip_id})
     session.add(stop)
+    _touch_trip(session, trip_id)
     session.commit()
     session.refresh(stop)
     return stop
@@ -130,6 +140,7 @@ def update_stop(
         setattr(stop, key, value)
     stop.updated_at = datetime.utcnow()
     session.add(stop)
+    _touch_trip(session, stop.trip_id)
     session.commit()
     session.refresh(stop)
     return stop
@@ -140,7 +151,9 @@ def delete_stop(stop_id: int, session: Session = Depends(get_session)):
     stop = session.get(Stop, stop_id)
     if not stop:
         raise HTTPException(404, "Stopp nicht gefunden")
+    trip_id = stop.trip_id
     session.delete(stop)
+    _touch_trip(session, trip_id)
     session.commit()
 
 
