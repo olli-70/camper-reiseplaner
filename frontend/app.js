@@ -410,8 +410,17 @@ function escapeHtml(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// ---- Service Worker (Offline-Read-Cache) ------------------------------------
+// ---- Service Worker (Offline-Read-Cache + nahtloses Auto-Update) -------------
 if ("serviceWorker" in navigator) {
+  // War die Seite beim Laden schon von einem SW kontrolliert? Dann ist ein
+  // späterer Controller-Wechsel ein *Update* -> einmal automatisch neu laden.
+  const hadController = !!navigator.serviceWorker.controller;
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (refreshing || !hadController) return; // Erstinstallation nicht neu laden
+    refreshing = true;
+    window.location.reload();
+  });
   window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 }
 
