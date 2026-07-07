@@ -6,12 +6,19 @@ gehalten (Single-User hinter Tailscale, FastAPI + SQLite + Vanilla-PWA).
 ## Überblick
 
 ```
-Browser (PWA, MapLibre)  ──REST──►  FastAPI  ──►  SQLite (/data/camper.db)
-        app.js / index.html               app/main.py, models.py, db.py
+Browser (PWA, Google Maps)  ──REST──►  FastAPI  ──►  SQLite (/data/camper.db)
+        app.js / index.html                 app/main.py, models.py, db.py
 ```
 
 - **Ein Container** serviert API + statische PWA.
-- **Datenmodell:** `Trip` 1─n `Stop` (ein Stopp gehört zu genau einer Reise).
+- **Datenmodell:** `Trip` 1─n `Stop`. `Stop.kind` unterscheidet
+  `stop` (Übernachtungsplatz, in Liste/Route) und `poi` (nur Punkt).
+- **Externe Dienste (gratis):** Google Maps JS (Basiskarte, Key aus Vault via
+  `/api/config`), OSRM Demo (`/route` = Etappen, `/table` = POI→alle Plätze),
+  Nominatim (Adress-/Reverse-Geocoding). Kein Dienst wird serverseitig gebraucht.
+- **Backup:** Semaphore Backup v2, Typ `camper` (SQLite-Online-Snapshot via Python
+  nach NFS `/backup/` + Kopia-Versionierung) – Eintrag in
+  `semaphore-homelab/inventory/group_vars/all/backup.yml`.
 
 ## Ein neues Feld an einem Stopp hinzufügen
 
@@ -34,15 +41,18 @@ kleine Stellen** nötig:
 
    Feldtypen: `text | textarea | select | date | datetime | checkbox`.
    Optional: `options` (bei `select`), `default`, `required`,
-   `showIf: "<checkbox-key>"` (Feld nur sichtbar, wenn die Checkbox an ist).
+   `showIf: "<checkbox-key>"` (Feld nur sichtbar, wenn die Checkbox an ist),
+   `poi: true` (Feld auch beim **POI**-Bearbeiten zeigen; ohne die Flag erscheint
+   es nur bei Übernachtungsplätzen – POIs zeigen sonst nur Name + Notiz).
 
 3. **Deployen** wie üblich (Playbook `camper-reiseplaner.yml`) und den
    Service-Worker-Cache in `frontend/sw.js` hochzählen (`camper-vN`), damit die
    PWA die neue Version lädt.
 
-> **Popup/Karte:** Die Marker-Popup-Anzeige ist bewusst *kuratiert*
-> (`stopPopupDOM` in `app.js`). Soll ein neues Feld dort erscheinen, wird es
-> dort gezielt ergänzt – das ist Anzeige, keine Dateneingabe.
+> **Popup/Karte:** Die Marker-InfoWindows sind bewusst *kuratiert*
+> (`stopPopupDOM` für Übernachtungsplätze, `openPoiInfo` für POIs in `app.js`).
+> Soll ein neues Feld dort erscheinen, wird es gezielt ergänzt – das ist Anzeige,
+> keine Dateneingabe.
 
 ## Mandantenfähigkeit (geplant – NICHT umgesetzt)
 
