@@ -1,5 +1,6 @@
 // Service Worker – Offline-Read-Cache (Ansehen offline, Bearbeiten nur online).
-const CACHE = "camper-v13";
+// Hinweis: Die Google-Maps-Karte selbst braucht Netz (kein Offline-Kartenbild).
+const CACHE = "camper-v14";
 const SHELL = [
   "/",
   "/index.html",
@@ -8,8 +9,6 @@ const SHELL = [
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
-  "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js",
-  "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css",
   "https://unpkg.com/sortablejs@1.15.6/Sortable.min.js",
 ];
 
@@ -30,10 +29,8 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return; // Schreibzugriffe nur online
 
   const url = new URL(req.url);
-  const isApi = url.pathname.startsWith("/api/");
-  const isTiles = url.hostname.endsWith("openfreemap.org");
 
-  if (isApi) {
+  if (url.pathname.startsWith("/api/")) {
     // Netzwerk zuerst, damit Daten frisch sind; offline aus Cache lesen.
     e.respondWith(
       fetch(req)
@@ -43,18 +40,7 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
-  if (isTiles) {
-    // Karten-Kacheln: Cache zuerst, im Hintergrund auffrischen (stale-while-revalidate).
-    e.respondWith(
-      caches.open(CACHE).then(async (c) => {
-        const hit = await c.match(req);
-        const net = fetch(req).then((res) => { c.put(req, res.clone()); return res; }).catch(() => hit);
-        return hit || net;
-      })
-    );
-    return;
-  }
-
-  // App-Shell: Cache zuerst, sonst Netzwerk.
+  // App-Shell: Cache zuerst, sonst Netzwerk. Karten-Requests (Google, cross-origin)
+  // sind nicht im Cache -> laufen direkt ins Netz, werden nicht zwischengespeichert.
   e.respondWith(caches.match(req).then((hit) => hit || fetch(req)));
 });

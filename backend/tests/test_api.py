@@ -19,6 +19,12 @@ def test_health():
     assert client.get("/api/health").json() == {"status": "ok"}
 
 
+def test_config_has_maps_key_field():
+    r = client.get("/api/config")
+    assert r.status_code == 200
+    assert "googleMapsApiKey" in r.json()
+
+
 def test_trip_touched_when_stop_added():
     import time
 

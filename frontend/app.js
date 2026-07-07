@@ -20,20 +20,84 @@ const state = {
   trips: [],
   tripId: null,
   stops: [],
-  markers: {},        // stopId -> maplibregl.Marker
+  markers: {},        // stopId -> google.maps.Marker
   editingId: null,    // Stopp-ID beim Bearbeiten, sonst null
   pendingCoords: null // Reserve für das Bearbeiten-Formular
 };
 
-// ---- Karte -------------------------------------------------------------------
-const map = new maplibregl.Map({
-  container: "map",
-  style: "https://tiles.openfreemap.org/styles/bright",
-  center: [10.0, 51.0], // Mitteleuropa
-  zoom: 4,
-});
-map.addControl(new maplibregl.NavigationControl(), "bottom-right");
-map.addControl(new maplibregl.GeolocateControl({ trackUserLocation: true }), "bottom-right");
+// ---- Karte (Google Maps) ----------------------------------------------------
+let map = null;
+let infoWindow = null;
+let infoOpenId = null;
+const STATUS_COLORS = { geplant: "#2563eb", besucht: "#16a34a", reserviert: "#ea580c" };
+
+// Google Maps JS dynamisch mit Key aus /api/config laden (Key ist per Referrer
+// auf camper.dorf27.com beschränkt -> in der Auslieferung ohnehin sichtbar).
+async function loadGoogleMaps() {
+  const cfg = await api.get("/api/config");
+  if (!cfg.googleMapsApiKey) throw new Error("Kein Google-Maps-Key konfiguriert");
+  await new Promise((resolve, reject) => {
+    window.__gmapsReady = resolve;
+    const sc = document.createElement("script");
+    sc.src = "https://maps.googleapis.com/maps/api/js?key="
+      + encodeURIComponent(cfg.googleMapsApiKey) + "&loading=async&callback=__gmapsReady";
+    sc.async = true;
+    sc.onerror = () => reject(new Error("Google Maps konnte nicht geladen werden"));
+    document.head.appendChild(sc);
+  });
+}
+
+function initMap() {
+  map = new google.maps.Map(document.getElementById("map"), {
+    center: { lat: 51, lng: 10 }, // Mitteleuropa
+    zoom: 4,
+    mapTypeControl: false,
+    streetViewControl: false,
+    fullscreenControl: false,
+    clickableIcons: false,
+  });
+  infoWindow = new google.maps.InfoWindow();
+  google.maps.event.addListener(infoWindow, "closeclick", () => { infoOpenId = null; });
+  addLocateControl();
+  map.addListener("click", onMapClick);
+}
+
+// "Mein Standort"-Button als eigenes Karten-Control (unten rechts)
+function addLocateControl() {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "locate-btn";
+  btn.title = "Mein Standort";
+  btn.textContent = "◎";
+  btn.onclick = () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition((pos) => {
+      map.panTo({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      map.setZoom(12);
+    });
+  };
+  map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(btn);
+}
+
+// Klick auf die Karte: Ort ermitteln -> nachfragen -> anlegen.
+async function onMapClick(e) {
+  if (!state.tripId) { alert("Bitte zuerst eine Reise anlegen (＋ Reise)."); return; }
+  const lat = e.latLng.lat();
+  const lng = e.latLng.lng();
+  const hintEl = document.getElementById("hint");
+  hintEl.textContent = "Ort wird ermittelt …";
+  const name = (await reverseGeocode(lat, lng)) || `Ort bei ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  hintEl.textContent = HINT;
+  const chosenName = await confirmAdd(name);
+  if (!chosenName) return;
+  try {
+    await api.send("POST", `/api/trips/${state.tripId}/stops`,
+      { name: chosenName, lat, lng, status: "geplant" });
+    await loadStops();
+  } catch (err) {
+    alert("Hinzufügen fehlgeschlagen: " + err.message);
+  }
+}
 
 // ---- Deep-Links --------------------------------------------------------------
 // Orts-Pin (zentriert auf den gewählten Ort). "Route" ist in Apple Maps ein Tipp entfernt.
@@ -69,43 +133,53 @@ function stopPopupDOM(s) {
   return el;
 }
 
-// ---- Marker rendern ----------------------------------------------------------
+// ---- Marker rendern (Google Maps) -------------------------------------------
 function clearMarkers() {
-  Object.values(state.markers).forEach((m) => m.remove());
+  Object.values(state.markers).forEach((m) => m.setMap(null));
   state.markers = {};
 }
+
+// InfoWindow (Popup) eines Stopps öffnen – nutzt denselben DOM-Bauer wie zuvor.
+function openInfo(s) {
+  const marker = state.markers[s.id];
+  if (!marker) return;
+  infoWindow.setContent(stopPopupDOM(s));
+  infoWindow.open(map, marker);
+  infoOpenId = s.id;
+}
+
 function renderMarkers() {
   clearMarkers();
   state.stops.forEach((s) => {
-    const el = document.createElement("div");
-    el.className = "marker-wrap";
-    const pin = document.createElement("div");
-    pin.className = `marker ${s.status}`;
-    el.appendChild(pin);
-    if (s.reserviert) {
-      const lock = document.createElement("div");
-      lock.className = "marker-lock";
-      lock.textContent = "🔒";
-      lock.title = "reserviert";
-      el.appendChild(lock);
-    }
-    const marker = new maplibregl.Marker({ element: el, anchor: "bottom", draggable: true })
-      .setLngLat([s.lng, s.lat])
-      .setPopup(new maplibregl.Popup({ offset: 24 }).setDOMContent(stopPopupDOM(s)))
-      .addTo(map);
+    const marker = new google.maps.Marker({
+      position: { lat: s.lat, lng: s.lng },
+      map,
+      draggable: true,
+      title: s.name,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        fillColor: STATUS_COLORS[s.status] || STATUS_COLORS.geplant,
+        fillOpacity: 1,
+        strokeColor: "#fff",
+        strokeWeight: 2,
+        scale: 9,
+      },
+      label: s.reserviert ? { text: "🔒", fontSize: "11px" } : undefined,
+    });
+    marker.addListener("click", () => openInfo(s));
     // Ort per Marker-Ziehen verschieben -> Koordinaten speichern + km neu
-    marker.on("dragend", async () => {
-      const ll = marker.getLngLat();
-      s.lat = ll.lat;
-      s.lng = ll.lng;
+    marker.addListener("dragend", async () => {
+      const p = marker.getPosition();
+      s.lat = p.lat();
+      s.lng = p.lng();
       try {
         await api.send("PATCH", `/api/stops/${s.id}`, { lat: s.lat, lng: s.lng });
       } catch (e) {
         alert("Verschieben fehlgeschlagen: " + e.message);
         return;
       }
-      marker.getPopup().setDOMContent(stopPopupDOM(s)); // Deep-Links aktualisieren
       computeDistances(); // km/Fahrzeit an neue Position anpassen
+      if (infoOpenId === s.id) openInfo(s); // Deep-Links aktualisieren
     });
     state.markers[s.id] = marker;
   });
@@ -129,8 +203,9 @@ function renderList() {
       `<span class="badge ${s.status}">${s.status}</span>` +
       `<span class="leg-dist" data-leg="${i}"></span>`;
     li.querySelector(".stop-name").onclick = () => {
-      map.flyTo({ center: [s.lng, s.lat], zoom: 11 });
-      state.markers[s.id]?.togglePopup();
+      map.panTo({ lat: s.lat, lng: s.lng });
+      map.setZoom(Math.max(map.getZoom(), 11));
+      openInfo(s);
     };
     ul.appendChild(li);
   });
@@ -225,10 +300,13 @@ async function loadStops() {
   document.getElementById("tripTitle").textContent = trip ? trip.name : "–";
   renderMarkers();
   renderList();
-  if (state.stops.length) {
-    const b = new maplibregl.LngLatBounds();
-    state.stops.forEach((s) => b.extend([s.lng, s.lat]));
-    map.fitBounds(b, { padding: 60, maxZoom: 11, duration: 600 });
+  if (state.stops.length === 1) {
+    map.setCenter({ lat: state.stops[0].lat, lng: state.stops[0].lng });
+    map.setZoom(11);
+  } else if (state.stops.length > 1) {
+    const b = new google.maps.LatLngBounds();
+    state.stops.forEach((s) => b.extend({ lat: s.lat, lng: s.lng }));
+    map.fitBounds(b, 60);
   }
 }
 
@@ -391,27 +469,6 @@ function confirmAdd(name) {
   });
 }
 
-// Klick auf die Karte: Ort ermitteln -> nachfragen -> anlegen.
-map.on("click", async (e) => {
-  if (!state.tripId) { alert("Bitte zuerst eine Reise anlegen (＋ Reise)."); return; }
-  const { lat, lng } = e.lngLat;
-  const hintEl = document.getElementById("hint");
-  hintEl.textContent = "Ort wird ermittelt …";
-  const name =
-    (await reverseGeocode(lat, lng)) ||
-    `Ort bei ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-  hintEl.textContent = HINT;
-  const chosenName = await confirmAdd(name);
-  if (!chosenName) return;
-  try {
-    await api.send("POST", `/api/trips/${state.tripId}/stops`,
-      { name: chosenName, lat, lng, status: "geplant" });
-    await loadStops();
-  } catch (err) {
-    alert("Hinzufügen fehlgeschlagen: " + err.message);
-  }
-});
-
 // ---- UI-Verdrahtung ----------------------------------------------------------
 document.getElementById("tripSelect").onchange = async (e) => {
   state.tripId = Number(e.target.value);
@@ -452,4 +509,15 @@ if ("serviceWorker" in navigator) {
 }
 
 document.getElementById("hint").textContent = HINT;
-map.on("load", loadTrips);
+
+// ---- Start: Google Maps laden -> Karte init -> Daten laden -------------------
+(async () => {
+  try {
+    await loadGoogleMaps();
+    initMap();
+    await loadTrips();
+  } catch (e) {
+    document.getElementById("hint").textContent = "Karte konnte nicht geladen werden: " + e.message;
+    document.getElementById("tripTitle").textContent = "⚠️ Karte nicht verfügbar";
+  }
+})();

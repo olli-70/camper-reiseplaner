@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +42,13 @@ def _validate_status(status: str) -> None:
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/api/config")
+def config() -> dict:
+    # Client-seitiger Google-Maps-Key (per HTTP-Referrer auf camper.dorf27.com
+    # beschränkt -> in der Auslieferung ohnehin sichtbar, kein Geheimnis).
+    return {"googleMapsApiKey": os.getenv("GOOGLE_MAPS_API_KEY", "")}
 
 
 # ---- Trips -------------------------------------------------------------------
