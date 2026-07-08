@@ -283,14 +283,13 @@ function renderList() {
     const li = document.createElement("li");
     li.className = "stop";
     li.dataset.id = s.id;
-    const icon = s.reserviert ? "✅ " : "❓ ";
     const resLine = s.reserviert && (s.reserviert_von || s.reserviert_bis)
       ? `<span class="stop-res">An: ${fmtDMHM(s.reserviert_von) || "?"} · ab: ${fmtDMHM(s.reserviert_bis) || "?"}</span>`
       : "";
     const handle = isLocked() ? "" : `<span class="drag-handle" title="Ziehen zum Sortieren">⠿</span>`;
     li.innerHTML =
       handle +
-      `<span class="stop-name">${icon}${escapeHtml(s.name)}</span>` +
+      `<span class="stop-name">${escapeHtml(s.name)}</span>` +
       `<span class="badge ${s.status}">${s.status}</span>` +
       resLine +
       `<span class="leg-dist" data-leg="${i}"></span>` +
