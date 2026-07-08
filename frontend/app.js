@@ -33,6 +33,7 @@ let infoWindow = null;
 let infoOpenId = null;
 let dirService = null;    // Google DirectionsService (Routenberechnung)
 let routePolylines = [];  // je Etappe eine eigene Linie (zwischen Übernachtungen)
+let routeSegments = [];   // je Etappe { label, path } – für Etappen-Auswahl der Suche
 let mapsApiKey = null;    // Google-Maps-Key (aus /api/config) – auch für Places-REST
 let searchMarkers = [];   // temporäre Fund-Pins der Routensuche
 const STATUS_COLORS = { geplant: "#2563eb", besucht: "#16a34a", reserviert: "#ea580c" };
@@ -395,12 +396,12 @@ async function computeDistances() {
   // Geordnete Punktfolge: [Start?] + Route-Elemente + [Ziel?]. routeIdx zeigt auf
   // die Listenzeile (>=0), Start/Ziel haben keine Zeile (routeIdx=null).
   const seq = [];
-  if (hasStart) seq.push({ lat: t.start_lat, lng: t.start_lng, anchor: true, routeIdx: null });
+  if (hasStart) seq.push({ lat: t.start_lat, lng: t.start_lng, anchor: true, routeIdx: null, name: "Start" });
   state.route.forEach((s, i) => seq.push({
-    lat: s.lat, lng: s.lng, anchor: s.kind !== "poi", routeIdx: i, ref: s,
+    lat: s.lat, lng: s.lng, anchor: s.kind !== "poi", routeIdx: i, ref: s, name: s.name,
   }));
-  if (hasEnd) seq.push({ lat: t.end_lat, lng: t.end_lng, anchor: true, routeIdx: null });
-  if (seq.length < 2) { clearRoutes(); return; }
+  if (hasEnd) seq.push({ lat: t.end_lat, lng: t.end_lng, anchor: true, routeIdx: null, name: "Ziel" });
+  if (seq.length < 2) { clearRoutes(); routeSegments = []; renderLegSelector(); return; }
 
   // Anker = Segmentgrenzen: erster + letzter Punkt sowie jede Übernachtung.
   const anchorPos = [];
@@ -413,7 +414,7 @@ async function computeDistances() {
     const a = anchorPos[k], b = anchorPos[k + 1];
     segments.push({ from: seq[a], to: seq[b], waypoints: seq.slice(a + 1, b) });
   }
-  if (!segments.length) { clearRoutes(); return; }
+  if (!segments.length) { clearRoutes(); routeSegments = []; renderLegSelector(); return; }
 
   try {
     await ensureDirections();
@@ -427,6 +428,7 @@ async function computeDistances() {
       }).catch(() => null)));
 
     clearRoutes();
+    routeSegments = [];
     let grandM = 0, grandS = 0, backM = 0, backS = 0, anyFail = false;
 
     results.forEach((res, si) => {
@@ -440,6 +442,11 @@ async function computeDistances() {
         strokeColor: SEGMENT_COLORS[si % SEGMENT_COLORS.length],
         strokeWeight: 5, strokeOpacity: 0.85,
       }));
+      // Etappe für die Etappen-Auswahl der Suche merken (Label + Straßenverlauf)
+      routeSegments.push({
+        label: `${seg.from.name} → ${seg.to.name}`,
+        path: route.overview_path.map((ll) => ({ lat: ll.lat(), lng: ll.lng() })),
+      });
       // Wegpunkt-POIs: jeweils der einzelne eingehende Sprung
       seg.waypoints.forEach((wp, wi) => {
         const leg = legs[wi];
@@ -479,8 +486,11 @@ async function computeDistances() {
     if (hasEnd) txt += ` · Rückweg zum Ziel: ${Math.round(backM / 1000)} km (${fmtDur(backS)})`;
     if (anyFail) txt += " · ⚠️ eine Etappe konnte nicht berechnet werden";
     if (total) total.textContent = txt;
+    renderLegSelector();
   } catch (err) {
     clearRoutes();
+    routeSegments = [];
+    renderLegSelector();
     console.warn("Directions fehlgeschlagen:", err && err.message);
   }
 }
@@ -489,6 +499,25 @@ async function computeDistances() {
 function setLeg(i, meters, seconds) {
   const el = document.querySelector(`#stopList .leg-dist[data-leg="${i}"]`);
   if (el) el.textContent = `↓ ${Math.round(meters / 1000)} km (${fmtDur(seconds)})`;
+}
+
+// Etappen-Auswahl (Dropdown vor der Routensuche) aus routeSegments aufbauen
+function renderLegSelector() {
+  const sel = document.getElementById("routeLegSelect");
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = "";
+  const optAll = document.createElement("option");
+  optAll.value = "all";
+  optAll.textContent = routeSegments.length ? `Ganze Route (${routeSegments.length} Etappen)` : "— keine Route —";
+  sel.appendChild(optAll);
+  routeSegments.forEach((s, i) => {
+    const o = document.createElement("option");
+    o.value = String(i); o.textContent = s.label;
+    sel.appendChild(o);
+  });
+  if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
+  sel.disabled = routeSegments.length === 0;
 }
 
 // ---- Touren / Panel-Kopf -----------------------------------------------------
@@ -882,11 +911,22 @@ function getRoutePath() {
     state.route.forEach((s) => pts.push({ lat: s.lat, lng: s.lng }));
     if (t.end_lat != null) pts.push({ lat: t.end_lat, lng: t.end_lng });
   }
-  if (pts.length > 60) {
-    const step = Math.ceil(pts.length / 60);
-    pts = pts.filter((_, i) => i % step === 0 || i === pts.length - 1);
-  }
-  return pts;
+  return downsample(pts);
+}
+
+// Punktzahl auf ~max begrenzen (Overpass/encodePath schlank halten)
+function downsample(pts, max = 60) {
+  if (pts.length <= max) return pts;
+  const step = Math.ceil(pts.length / max);
+  return pts.filter((_, i) => i % step === 0 || i === pts.length - 1);
+}
+
+// Suchpfad: gewählte Etappe (routeLegSelect) ODER ganze Route
+function getSearchPath() {
+  const sel = document.getElementById("routeLegSelect");
+  const v = sel ? sel.value : "all";
+  if (v !== "all" && routeSegments[+v]) return downsample(routeSegments[+v].path.slice());
+  return getRoutePath();
 }
 
 // OSM/Overpass: Camp-/Wohnmobilplätze im Korridor um die Route (around: Polyline)
@@ -969,12 +1009,15 @@ async function googleAlongRoute(points) {
 
 async function searchAlongRoute() {
   const box = document.getElementById("searchResults");
-  const path = getRoutePath();
+  const sel = document.getElementById("routeLegSelect");
+  const legLabel = (sel && sel.value !== "all" && routeSegments[+sel.value])
+    ? `Etappe „${routeSegments[+sel.value].label}"` : "der Route";
+  const path = getSearchPath();
   if (path.length < 2) {
     alert("Bitte zuerst eine Route anlegen (Start/Ziel + mindestens ein Stopp).");
     return;
   }
-  box.innerHTML = `<div class="search-hint">Suche Stellplätze entlang der Route …</div>`;
+  box.innerHTML = `<div class="search-hint">Suche Stellplätze entlang ${escapeHtml(legLabel)} …</div>`;
   clearSearchMarkers();
   const dedupe = (arr) => {
     const out = [];
