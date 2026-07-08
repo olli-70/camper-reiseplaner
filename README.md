@@ -15,8 +15,38 @@ auf der Karte, bekomme **Straßen-Entfernungen + Fahrzeiten** und verwalte
 
 ---
 
+## ⚡ Schnellstart in 5 Minuten
+
+**1. Google-Maps-Key erstellen** (in der
+[Google Cloud Console](https://console.cloud.google.com/)):
+Projekt anlegen → Rechnungskonto verknüpfen → unter **APIs & Dienste → Bibliothek**
+diese vier APIs aktivieren: **Maps JavaScript API**, **Directions API**,
+**Geocoding API**, **Places API (New)** → unter **Anmeldedaten** einen
+**API-Schlüssel** erstellen → den Key per **HTTP-Referrer** auf deine Domain
+beschränken (z. B. `https://camper.example.com/*`, fürs lokale Testen zusätzlich
+`http://localhost:8082/*`).
+
+**2. Mit Docker starten:**
+
+```bash
+git clone https://github.com/<dein-user>/camper-reiseplaner.git
+cd camper-reiseplaner
+cp .env.example .env          # darin GOOGLE_MAPS_API_KEY=... eintragen
+docker compose up -d --build
+```
+
+Fertig → im Browser **http://localhost:8082** öffnen (Port über `CAMPER_PORT`
+in `.env` änderbar).
+
+> Ausführlicher – Key-Beschränkung, HTTPS für die PWA, Backup – steht weiter unten.
+> **Wichtig:** die App hat **kein Login** – nicht ungeschützt ins Internet stellen
+> ([Details](#️-sicherheit-kein-eingebautes-login)).
+
+---
+
 ## Inhalt
 
+- [⚡ Schnellstart in 5 Minuten](#-schnellstart-in-5-minuten)
 - [Funktionen](#funktionen)
 - [Technik & Architektur](#technik--architektur)
 - [Schnellstart (Docker Compose)](#schnellstart-docker-compose)
