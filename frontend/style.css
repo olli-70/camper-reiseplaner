@@ -4,7 +4,14 @@
   --reserviert: #ea580c;
   --bg: #0f766e;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Formular-Steuerelemente immer im Hell-Schema rendern -> nie weiß-auf-weiß
+     (auch wenn iOS/macOS im Dark-Modus sind). Die App ist ohnehin hell. */
+  color-scheme: light;
 }
+/* Explizite Farben für ALLE Eingabe-/Auswahlfelder (Sicherheitsnetz gegen
+   System-Dark-Mode: dunkler Text auf hellem Grund, inkl. Dropdown-Optionen). */
+input, select, textarea { background-color: #fff; color: #111; }
+select option { background-color: #fff; color: #111; }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
