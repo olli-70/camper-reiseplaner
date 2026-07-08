@@ -6,9 +6,14 @@ services:
     image: camper-reiseplaner:latest
     container_name: camper-reiseplaner
     restart: unless-stopped
+    environment:
+      # Google-Maps-API-Key – aus der .env-Datei (siehe .env.example).
+      # Ohne Key lädt die Karte nicht.
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
     ports:
-      # Nur intern / im Tailnet erreichbar – kein öffentlicher Port.
-      - "8082:8000"
+      # host:container – Standard-Port des Containers ist 8000.
+      # Tipp: hinter einen Reverse-Proxy/VPN hängen, es gibt KEIN Login.
+      - "${CAMPER_PORT:-8082}:8000"
     volumes:
       - camper-data:/data
     healthcheck:

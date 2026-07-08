@@ -5,3 +5,5 @@ data/
 *.db
 .DS_Store
 .pytest_cache/
+# Eigene Konfiguration mit API-Key – NIE committen (.env.example ist die Vorlage)
+.env

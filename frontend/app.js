@@ -38,7 +38,7 @@ const STATUS_COLORS = { geplant: "#2563eb", besucht: "#16a34a", reserviert: "#ea
 const SEGMENT_COLORS = ["#0f766e", "#06b6d4"];
 
 // Google Maps JS dynamisch mit Key aus /api/config laden (Key ist per Referrer
-// auf camper.dorf27.com beschränkt -> in der Auslieferung ohnehin sichtbar).
+// auf die eigene Domain beschränkt -> in der Auslieferung ohnehin sichtbar).
 async function loadGoogleMaps() {
   const cfg = await api.get("/api/config");
   if (!cfg.googleMapsApiKey) throw new Error("Kein Google-Maps-Key konfiguriert");

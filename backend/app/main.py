@@ -46,8 +46,8 @@ def health() -> dict:
 
 @app.get("/api/config")
 def config() -> dict:
-    # Client-seitiger Google-Maps-Key (per HTTP-Referrer auf camper.dorf27.com
-    # beschränkt -> in der Auslieferung ohnehin sichtbar, kein Geheimnis).
+    # Client-seitiger Google-Maps-Key. Sollte per HTTP-Referrer auf die eigene
+    # Domain beschränkt sein -> in der Auslieferung ohnehin sichtbar, kein Geheimnis.
     return {"googleMapsApiKey": os.getenv("GOOGLE_MAPS_API_KEY", "")}
 
 

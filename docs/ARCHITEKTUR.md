@@ -1,7 +1,8 @@
 # Architektur & Erweiterbarkeit
 
 Kurzer Leitfaden, wie der Camper-Reiseplaner erweitert wird – bewusst schlank
-gehalten (Single-User hinter Tailscale, FastAPI + SQLite + Vanilla-PWA).
+gehalten (Single-User, FastAPI + SQLite + Vanilla-PWA). Deploy & Betrieb stehen
+im [README](../README.md).
 
 ## Überblick
 
@@ -23,12 +24,11 @@ Browser (PWA, Google Maps)  ──REST──►  FastAPI  ──►  SQLite (/da
   das 25-Wegpunkt-Limit nur je Etappe (praktisch nie) und km/Zeit sind pro Etappe
   sichtbar: Übernachtungs-Zeile = Etappen-Summe, POI-Zeile = einzelner Umweg-Sprung.
 - **Externe Dienste (gratis-Kontingent):** Google Maps JS (Basiskarte + Directions,
-  Key aus Vault via `/api/config`, Referrer-beschränkt), OSRM Demo (`/table` =
-  POI→alle Plätze im POI-Popup), Google Places/Geocoder + Nominatim (Ortssuche/
-  Reverse-Geocoding). Kein Dienst wird serverseitig gebraucht.
-- **Backup:** Semaphore Backup v2, Typ `camper` (SQLite-Online-Snapshot via Python
-  nach NFS `/backup/` + Kopia-Versionierung) – Eintrag in
-  `semaphore-homelab/inventory/group_vars/all/backup.yml`.
+  Key als ENV `GOOGLE_MAPS_API_KEY` → `/api/config`, Referrer-beschränkt), OSRM Demo
+  (`/table` = POI→alle Plätze im POI-Popup), Google Places/Geocoder + Nominatim
+  (Ortssuche/Reverse-Geocoding). Kein Dienst wird serverseitig gebraucht.
+- **Backup:** SQLite-Online-Snapshot (kein Stopp nötig); Befehle im
+  [README → Daten & Backup](../README.md#daten--backup).
 
 ## Ein neues Feld an einem Stopp hinzufügen
 
@@ -55,7 +55,7 @@ kleine Stellen** nötig:
    `poi: true` (Feld auch beim **POI**-Bearbeiten zeigen; ohne die Flag erscheint
    es nur bei Übernachtungsplätzen – POIs zeigen sonst nur Name + Notiz).
 
-3. **Deployen** wie üblich (Playbook `camper-reiseplaner.yml`) und den
+3. **Neu bauen/deployen** (`docker compose up -d --build`) und den
    Service-Worker-Cache in `frontend/sw.js` hochzählen (`camper-vN`), damit die
    PWA die neue Version lädt.
 
