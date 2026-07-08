@@ -33,6 +33,8 @@ let infoWindow = null;
 let infoOpenId = null;
 let dirService = null;    // Google DirectionsService (Routenberechnung)
 let routePolylines = [];  // je Etappe eine eigene Linie (zwischen Übernachtungen)
+let mapsApiKey = null;    // Google-Maps-Key (aus /api/config) – auch für Places-REST
+let searchMarkers = [];   // temporäre Fund-Pins der Routensuche
 const STATUS_COLORS = { geplant: "#2563eb", besucht: "#16a34a", reserviert: "#ea580c" };
 // Etappen-Linien wechseln die Farbe (Tagesgrenzen sichtbar); kein Marker-Farbwert
 const SEGMENT_COLORS = ["#0f766e", "#06b6d4"];
@@ -42,6 +44,7 @@ const SEGMENT_COLORS = ["#0f766e", "#06b6d4"];
 async function loadGoogleMaps() {
   const cfg = await api.get("/api/config");
   if (!cfg.googleMapsApiKey) throw new Error("Kein Google-Maps-Key konfiguriert");
+  mapsApiKey = cfg.googleMapsApiKey;
   await new Promise((resolve, reject) => {
     window.__gmapsReady = resolve;
     const sc = document.createElement("script");
@@ -849,10 +852,159 @@ async function forwardGeocode(address) {
   return list.length ? { lat: list[0].lat, lng: list[0].lng } : null;
 }
 
+// ---- Suche ENTLANG DER ROUTE (Stellplätze/Campingplätze) --------------------
+// Quellen: OpenStreetMap/Overpass (gratis, camper-spezifisch) + Google Places
+// searchAlongRoute (nach Umweg sortiert). Ergebnisse als temporäre Pins.
+function clearSearchMarkers() {
+  searchMarkers.forEach((m) => m.setMap(null));
+  searchMarkers = [];
+}
+
+// Luftlinie zweier Punkte in km (Dedup/Filter)
+function haversine(a, b) {
+  const R = 6371, toRad = (x) => (x * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
+  const s = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+// Punktfolge entlang der Route: bevorzugt die gezeichneten Etappen-Linien
+// (echter Straßenverlauf), sonst Luftlinie über Start/Stopps/Ziel. Downsampling.
+function getRoutePath() {
+  let pts = [];
+  if (routePolylines.length) {
+    routePolylines.forEach((pl) =>
+      pl.getPath().forEach((ll) => pts.push({ lat: ll.lat(), lng: ll.lng() })));
+  } else {
+    const t = currentTrip() || {};
+    if (t.start_lat != null) pts.push({ lat: t.start_lat, lng: t.start_lng });
+    state.route.forEach((s) => pts.push({ lat: s.lat, lng: s.lng }));
+    if (t.end_lat != null) pts.push({ lat: t.end_lat, lng: t.end_lng });
+  }
+  if (pts.length > 60) {
+    const step = Math.ceil(pts.length / 60);
+    pts = pts.filter((_, i) => i % step === 0 || i === pts.length - 1);
+  }
+  return pts;
+}
+
+// OSM/Overpass: Camp-/Wohnmobilplätze im Korridor um die Route (around: Polyline)
+async function overpassCampsites(points) {
+  if (points.length < 2) return [];
+  const around = "around:8000," +
+    points.map((p) => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join(",");
+  const q = `[out:json][timeout:25];(`
+    + `node["tourism"~"^(camp_site|caravan_site)$"](${around});`
+    + `way["tourism"~"^(camp_site|caravan_site)$"](${around}););out center 80;`;
+  try {
+    const r = await fetch("https://overpass-api.de/api/interpreter", {
+      method: "POST", body: "data=" + encodeURIComponent(q),
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+    });
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d.elements || []).map((e) => {
+      const lat = e.lat ?? (e.center && e.center.lat);
+      const lng = e.lon ?? (e.center && e.center.lon);
+      if (lat == null || lng == null) return null;
+      const tags = e.tags || {};
+      const info = tags.tourism === "caravan_site" ? "Wohnmobil-Stellplatz" : "Campingplatz";
+      return { name: tags.name || info, lat, lng, source: "osm", info };
+    }).filter(Boolean);
+  } catch { return []; }
+}
+
+// Google Places (New) Text-Suche entlang der Route (REST, referrer-geschützter Key)
+async function googleAlongRoute(points) {
+  if (!mapsApiKey || points.length < 2) return [];
+  try {
+    const { encoding } = await google.maps.importLibrary("geometry");
+    const encoded = encoding.encodePath(
+      points.map((p) => new google.maps.LatLng(p.lat, p.lng)));
+    const r = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": mapsApiKey,
+        "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location",
+      },
+      body: JSON.stringify({
+        textQuery: "Wohnmobilstellplatz Campingplatz",
+        languageCode: "de",
+        maxResultCount: 20,
+        searchAlongRouteParameters: { polyline: { encodedPolyline: encoded } },
+      }),
+    });
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d.places || []).map((p) => ({
+      name: (p.displayName && p.displayName.text) || "Campingplatz",
+      lat: p.location.latitude, lng: p.location.longitude,
+      source: "google", info: p.formattedAddress || "",
+    }));
+  } catch { return []; }
+}
+
+async function searchAlongRoute() {
+  const box = document.getElementById("searchResults");
+  const path = getRoutePath();
+  if (path.length < 2) {
+    alert("Bitte zuerst eine Route anlegen (Start/Ziel + mindestens ein Stopp).");
+    return;
+  }
+  box.innerHTML = `<div class="search-hint">Suche Stellplätze entlang der Route …</div>`;
+  clearSearchMarkers();
+  const [goog, osm] = await Promise.all([googleAlongRoute(path), overpassCampsites(path)]);
+  // Merge (Google zuerst = oft bessere Namen) + Dedup ~200 m
+  const merged = [];
+  for (const c of [...goog, ...osm]) {
+    if (!merged.some((m) => haversine(m, c) < 0.2)) merged.push(c);
+  }
+  if (!merged.length) {
+    box.innerHTML = `<div class="search-hint">Keine Stellplätze entlang der Route gefunden.</div>`;
+    return;
+  }
+  renderCampResults(merged);
+}
+
+function renderCampResults(list) {
+  const box = document.getElementById("searchResults");
+  box.innerHTML =
+    `<div class="search-hint">${list.length} Stellplätze entlang der Route — als Übernachtung 🛏 oder Punkt 📍 übernehmen:</div>`;
+  list.forEach((res) => {
+    const marker = new google.maps.Marker({
+      position: { lat: res.lat, lng: res.lng }, map, title: res.name,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE, fillColor: "#d97706",
+        fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2, scale: 6,
+      },
+    });
+    marker.addListener("click", () => map.panTo({ lat: res.lat, lng: res.lng }));
+    searchMarkers.push(marker);
+    const row = document.createElement("div");
+    row.className = "search-result";
+    const info = res.info ? ` · <span class="sr-info">${escapeHtml(res.info)}</span>` : "";
+    row.innerHTML =
+      `<div class="sr-name">🏕 ${escapeHtml(res.name)}${info}</div>` +
+      `<div class="sr-actions">` +
+        `<button data-k="stop" title="Als Übernachtungsplatz">🛏</button>` +
+        `<button data-k="poi" title="Als Punkt (POI)">📍</button>` +
+      `</div>`;
+    row.querySelector(".sr-name").onclick = () => {
+      map.panTo({ lat: res.lat, lng: res.lng }); map.setZoom(Math.max(map.getZoom(), 12));
+    };
+    row.querySelector('[data-k="stop"]').onclick = () => addSearchResult(res.name, res.lat, res.lng, "stop");
+    row.querySelector('[data-k="poi"]').onclick = () => addSearchResult(res.name, res.lat, res.lng, "poi");
+    box.appendChild(row);
+  });
+}
+
 // ---- Ort-Suche (Nominatim) -> als Übernachtungsplatz oder POI hinzufügen -----
 async function doSearch() {
   const q = document.getElementById("searchInput").value.trim();
   const box = document.getElementById("searchResults");
+  clearSearchMarkers();
   if (!q) { box.innerHTML = ""; return; }
   box.innerHTML = `<div class="search-hint">Suche …</div>`;
   const results = await searchPlaces(q);
@@ -882,6 +1034,7 @@ async function addSearchResult(name, lat, lng, kind) {
   try {
     await api.send("POST", `/api/trips/${state.tripId}/stops`,
       { name, lat, lng, status: "geplant", kind });
+    clearSearchMarkers();
     document.getElementById("searchResults").innerHTML = "";
     document.getElementById("searchInput").value = "";
     await loadStops();
@@ -955,6 +1108,7 @@ document.getElementById("searchBtn").onclick = doSearch;
 document.getElementById("searchInput").onkeydown = (e) => {
   if (e.key === "Enter") { e.preventDefault(); doSearch(); }
 };
+document.getElementById("routeSearchBtn").onclick = searchAlongRoute;
 document.getElementById("newTripBtn").onclick = async () => {
   const name = prompt("Name der neuen Reise?");
   if (!name) return;
