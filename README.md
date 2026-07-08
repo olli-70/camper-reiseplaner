@@ -17,6 +17,7 @@ Live: **https://camper.dorf27.com** (nur intern / Tailnet)
 - Name, Status (geplant/besucht/reserviert), Notiz, Datum.
 - **Reservierung**: Häkchen + „reserviert von/bis"; Anzeige `🚐✅` (reserviert) / `🚐❓` (offen),
   Zeile `An: TT.MM HH:MM · ab: TT.MM HH:MM`.
+- **Route auf der Karte**: die Strecke wird als Linie gezeichnet (Google Directions).
 - **Straßen-km + Fahrzeit** je Etappe (eingehend, inkl. Abfahrtsort → 1. Ort) und gesamt.
 - **⚠️ Reservierungs-Warnung**, wenn Ende(Vorplatz)+Fahrzeit > Start(nächster Platz).
 - Marker farblich nach Status, per Finger/Maus verschiebbar; Popup mit
@@ -25,6 +26,9 @@ Live: **https://camper.dorf27.com** (nur intern / Tailnet)
 **POIs** (nur Punkte, keine Übernachtung)
 - Aufklappmenü „📍 Punkte" (standardmäßig zu); Notizen pro POI.
 - Klick auf einen POI → **Entfernungen zu allen Übernachtungsplätzen** (sortiert).
+- **„in Route"**-Schalter je POI: nimmt den Punkt als **Wegpunkt** in die Route auf
+  (erscheint sortierbar in der Liste 🚏, die Linie führt hindurch); ohne Schalter
+  bleibt er nur ein Punkt auf der Karte.
 
 **Karte**: Google Maps (Karte/Satellit/Gelände), „Mein Standort".
 **PWA**: installierbar (iPhone/Mac), Offline-Read-Cache, nahtloses Auto-Update.
@@ -37,15 +41,17 @@ Browser (PWA)  ──REST──►  FastAPI  ──►  SQLite (/data/camper.db)
 ```
 
 - **Ein Container**: FastAPI serviert die REST-API *und* die statische PWA.
-- **Datenmodell:** `Trip` 1─n `Stop`. `Stop.kind` = `stop` (Übernachtung, in Liste/Route)
-  oder `poi` (nur Punkt).
+- **Datenmodell:** `Trip` 1─n `Stop`. `Stop.kind` = `stop` (Übernachtung, immer in
+  Liste/Route) oder `poi` (nur Punkt); `Stop.in_route` nimmt einen POI als Wegpunkt
+  in die Route auf.
 
-**Externe Dienste** (alle für 2 Nutzer gratis):
+**Externe Dienste** (alle im Gratis-Kontingent für 2 Nutzer):
 | Zweck | Dienst | Key? |
 |---|---|---|
 | Basiskarte | Google Maps JS (Dynamic Maps, 10k/Mon frei) | Key (Vault) |
-| Routing (km/Zeit, Matrix) | OSRM Demo (`router.project-osrm.org`) | nein |
-| Adress-/Reverse-Geocoding | OpenStreetMap Nominatim | nein |
+| Route + Etappen-km/Zeit | Google Directions (Routes, 5k/Mon frei) | Key (Vault) |
+| POI→Plätze-Matrix (Popup) | OSRM Demo (`router.project-osrm.org`) | nein |
+| Ortssuche/Geocoding | Google Places/Geocoder + OSM Nominatim | Key / nein |
 
 Der Google-Maps-Key liegt in Vault (`secret/camper-reiseplaner` → `api_key`,
 per Referrer auf `camper.dorf27.com` beschränkt), wird beim Deploy als ENV gesetzt

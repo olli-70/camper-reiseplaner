@@ -12,10 +12,17 @@ Browser (PWA, Google Maps)  ──REST──►  FastAPI  ──►  SQLite (/da
 
 - **Ein Container** serviert API + statische PWA.
 - **Datenmodell:** `Trip` 1─n `Stop`. `Stop.kind` unterscheidet
-  `stop` (Übernachtungsplatz, in Liste/Route) und `poi` (nur Punkt).
-- **Externe Dienste (gratis):** Google Maps JS (Basiskarte, Key aus Vault via
-  `/api/config`), OSRM Demo (`/route` = Etappen, `/table` = POI→alle Plätze),
-  Nominatim (Adress-/Reverse-Geocoding). Kein Dienst wird serverseitig gebraucht.
+  `stop` (Übernachtungsplatz, immer in Liste/Route) und `poi` (nur Punkt).
+  `Stop.in_route` (nur POIs): POI als **Wegpunkt** in die Route aufnehmen –
+  er erscheint dann sortierbar in der Liste und liegt auf der Routenlinie.
+- **Route:** `state.route` = Übernachtungen + `in_route`-POIs, gemeinsam nach
+  `reihenfolge` sortiert. **Google Directions** zeichnet die Linie
+  (`DirectionsRenderer`) und liefert die Etappen (`legs` = km + Fahrzeit);
+  Origin/Ziel = Start-/Zieladresse der Reise, max. 25 Zwischen-Wegpunkte.
+- **Externe Dienste (gratis-Kontingent):** Google Maps JS (Basiskarte + Directions,
+  Key aus Vault via `/api/config`, Referrer-beschränkt), OSRM Demo (`/table` =
+  POI→alle Plätze im POI-Popup), Google Places/Geocoder + Nominatim (Ortssuche/
+  Reverse-Geocoding). Kein Dienst wird serverseitig gebraucht.
 - **Backup:** Semaphore Backup v2, Typ `camper` (SQLite-Online-Snapshot via Python
   nach NFS `/backup/` + Kopia-Versionierung) – Eintrag in
   `semaphore-homelab/inventory/group_vars/all/backup.yml`.
