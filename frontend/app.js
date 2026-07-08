@@ -19,8 +19,9 @@ const STATUS = ["geplant", "reserviert", "besucht"];
 const state = {
   trips: [],
   tripId: null,
-  stops: [],          // Übernachtungsplätze (kind="stop") – Liste + Route
-  pois: [],           // reine Punkte (kind="poi") – nur Karte
+  stops: [],          // Übernachtungsplätze (kind="stop") – immer in Liste + Route
+  pois: [],           // reine Punkte (kind="poi") – nur Karte, außer in_route=true
+  route: [],          // geordnete Route = Stops + in_route-POIs (nach reihenfolge)
   markers: {},        // id -> google.maps.Marker (Stops UND POIs)
   editingId: null,    // Stopp-ID beim Bearbeiten, sonst null
   pendingCoords: null // Reserve für das Bearbeiten-Formular
@@ -30,6 +31,8 @@ const state = {
 let map = null;
 let infoWindow = null;
 let infoOpenId = null;
+let dirService = null;    // Google DirectionsService (Routenberechnung)
+let dirRenderer = null;   // zeichnet die Route als Linie
 const STATUS_COLORS = { geplant: "#2563eb", besucht: "#16a34a", reserviert: "#ea580c" };
 
 // Google Maps JS dynamisch mit Key aus /api/config laden (Key ist per Referrer
@@ -83,6 +86,25 @@ function addLocateControl() {
     });
   };
   map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(btn);
+}
+
+// Google DirectionsService/-Renderer lazy laden (Library "routes").
+async function ensureDirections() {
+  if (dirService && dirRenderer) return;
+  const { DirectionsService, DirectionsRenderer } =
+    await google.maps.importLibrary("routes");
+  dirService = new DirectionsService();
+  dirRenderer = new DirectionsRenderer({
+    map,
+    suppressMarkers: true,   // eigene Marker bleiben
+    preserveViewport: true,  // Ausschnitt macht loadStops (fitBounds)
+    polylineOptions: { strokeColor: "#0f766e", strokeWeight: 5, strokeOpacity: 0.85 },
+  });
+}
+
+// gezeichnete Route entfernen (zu wenige Punkte / Fehler)
+function clearRoute() {
+  if (dirRenderer) dirRenderer.setDirections({ routes: [] });
 }
 
 // Klick auf die Karte: Ort ermitteln -> nachfragen -> anlegen.
@@ -185,13 +207,15 @@ function renderMarkers() {
     });
     state.markers[s.id] = marker;
   });
-  // POIs: kleinere violette Punkte; Klick -> Entfernungen zu allen Plätzen
+  // POIs: violette Punkte; in_route -> teal (liegt auf der Route). Klick -> Entfernungen
   state.pois.forEach((p) => {
     const marker = new google.maps.Marker({
-      position: { lat: p.lat, lng: p.lng }, map, draggable: !isLocked(), title: p.name,
+      position: { lat: p.lat, lng: p.lng }, map, draggable: !isLocked(),
+      title: p.in_route ? p.name + " (in Route)" : p.name,
       icon: {
         path: google.maps.SymbolPath.CIRCLE,
-        fillColor: "#7c3aed", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2, scale: 6,
+        fillColor: p.in_route ? "#0f766e" : "#7c3aed",
+        fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2, scale: p.in_route ? 7 : 6,
       },
     });
     marker.addListener("click", () => openPoiInfo(p));
@@ -256,11 +280,15 @@ function renderPoiList() {
     li.className = "poi-item";
     const note = p.notiz ? `<div class="poi-note">${escapeHtml(p.notiz)}</div>` : "";
     li.innerHTML =
-      `<span class="poi-name">📍 ${escapeHtml(p.name)}</span>` +
+      `<span class="poi-name">${p.in_route ? "🚏" : "📍"} ${escapeHtml(p.name)}</span>` +
       `<span class="poi-actions">` +
         `<button data-act="edit" title="Bearbeiten / Notiz">✏️</button>` +
         `<button data-act="del" title="Löschen">🗑</button>` +
-      `</span>` + note;
+      `</span>` +
+      `<label class="poi-route" title="Punkt als Wegpunkt in die Route aufnehmen">` +
+        `<input type="checkbox" data-act="route"${p.in_route ? " checked" : ""}` +
+        `${isLocked() ? " disabled" : ""} /> in Route</label>` +
+      note;
     li.querySelector(".poi-name").onclick = () => {
       map.panTo({ lat: p.lat, lng: p.lng });
       map.setZoom(Math.max(map.getZoom(), 11));
@@ -268,6 +296,13 @@ function renderPoiList() {
     };
     li.querySelector('[data-act="edit"]').onclick = () => openForm(p);
     li.querySelector('[data-act="del"]').onclick = () => deleteStop(p.id);
+    li.querySelector('[data-act="route"]').onchange = async (ev) => {
+      if (isLocked()) { ev.target.checked = p.in_route; lockAlert(); return; }
+      try {
+        await api.send("PATCH", `/api/stops/${p.id}`, { in_route: ev.target.checked });
+        await loadStops();
+      } catch (e) { alert("Konnte Route nicht ändern: " + e.message); }
+    };
     ul.appendChild(li);
   });
 }
@@ -279,25 +314,30 @@ function renderList() {
   const ul = document.getElementById("stopList");
   if (sortable) { sortable.destroy(); sortable = null; }
   ul.innerHTML = "";
-  state.stops.forEach((s, i) => {
+  state.route.forEach((s, i) => {
+    const isPoi = s.kind === "poi";
     const li = document.createElement("li");
-    li.className = "stop";
+    li.className = isPoi ? "stop route-poi" : "stop";
     li.dataset.id = s.id;
-    const resLine = s.reserviert && (s.reserviert_von || s.reserviert_bis)
+    li.dataset.kind = s.kind || "stop";
+    const badge = isPoi
+      ? `<span class="badge poi">Wegpunkt</span>`
+      : `<span class="badge ${s.status}">${s.status}</span>`;
+    const resLine = !isPoi && s.reserviert && (s.reserviert_von || s.reserviert_bis)
       ? `<span class="stop-res">An: ${fmtDMHM(s.reserviert_von) || "?"} · ab: ${fmtDMHM(s.reserviert_bis) || "?"}</span>`
       : "";
     const handle = isLocked() ? "" : `<span class="drag-handle" title="Ziehen zum Sortieren">⠿</span>`;
     li.innerHTML =
       handle +
-      `<span class="stop-name">${escapeHtml(s.name)}</span>` +
-      `<span class="badge ${s.status}">${s.status}</span>` +
+      `<span class="stop-name">${isPoi ? "🚏 " : ""}${escapeHtml(s.name)}</span>` +
+      badge +
       resLine +
       `<span class="leg-dist" data-leg="${i}"></span>` +
       `<span class="leg-warn" data-warn="${i}"></span>`;
     li.querySelector(".stop-name").onclick = () => {
       map.panTo({ lat: s.lat, lng: s.lng });
       map.setZoom(Math.max(map.getZoom(), 11));
-      openInfo(s);
+      isPoi ? openPoiInfo(s) : openInfo(s);
     };
     ul.appendChild(li);
   });
@@ -315,8 +355,8 @@ function renderList() {
 async function onReorder() {
   const ul = document.getElementById("stopList");
   const ids = [...ul.querySelectorAll("li.stop")].map((li) => Number(li.dataset.id));
-  const byId = Object.fromEntries(state.stops.map((s) => [s.id, s]));
-  state.stops = ids.map((id) => byId[id]);
+  const byId = Object.fromEntries(state.route.map((s) => [s.id, s]));
+  state.route = ids.map((id) => byId[id]);
   try {
     await api.send("PUT", `/api/trips/${state.tripId}/stops/order`, { order: ids });
   } catch (e) {
@@ -335,9 +375,9 @@ function fmtDur(sec) {
   return `${m} min`;
 }
 
-// Straßen-Distanzen (km) + Fahrzeit (HH:MM) zwischen aufeinanderfolgenden
-// Stopps via OSRM. Ein /route-Call liefert Etappen (legs) mit distance+duration.
-// Offline/Fehler -> keine Angaben.
+// Straßenroute (Linie auf der Karte) + Etappen-km/Fahrzeit via Google Directions.
+// Route = [Start?] + state.route (Übernachtungen + in_route-POIs) + [Ziel?].
+// Google zieht die Linie (DirectionsRenderer); legs liefern distance+duration.
 async function computeDistances() {
   document.querySelectorAll("#stopList .leg-dist").forEach((e) => (e.textContent = ""));
   document.querySelectorAll("#stopList .leg-warn").forEach((e) => { e.textContent = ""; e.title = ""; });
@@ -348,58 +388,76 @@ async function computeDistances() {
   const hasStart = t.start_lat != null && t.start_lng != null;
   const hasEnd = t.end_lat != null && t.end_lng != null;
 
-  // Routenpunkte: [Start?] + Stops + [Ziel?]
+  // Routenpunkte: [Start?] + Route-Elemente + [Ziel?]
   const pts = [];
   if (hasStart) pts.push({ lat: t.start_lat, lng: t.start_lng });
-  state.stops.forEach((s) => pts.push({ lat: s.lat, lng: s.lng }));
+  state.route.forEach((s) => pts.push({ lat: s.lat, lng: s.lng }));
   if (hasEnd) pts.push({ lat: t.end_lat, lng: t.end_lng });
-  if (pts.length < 2) return;
+  if (pts.length < 2) { clearRoute(); return; }
 
-  const coords = pts.map((p) => `${p.lng},${p.lat}`).join(";");
+  // Google: Origin + Destination + max. 25 Zwischen-Wegpunkte.
+  const waypointCount = pts.length - 2;
+  if (waypointCount > 25) {
+    clearRoute();
+    if (total) total.textContent =
+      `Zu viele Wegpunkte für die Routenanzeige (${waypointCount} > 25). `
+      + `Bitte einige POIs aus der Route nehmen.`;
+    return;
+  }
+
   try {
-    const r = await fetch(
-      `https://router.project-osrm.org/route/v1/driving/${coords}?overview=false`);
-    const d = await r.json();
-    if (!r.ok || d.code !== "Ok" || !d.routes[0]) return;
-    const legs = d.routes[0].legs;        // Länge = pts.length - 1
-    const startOffset = hasStart ? 1 : 0; // Index von Stop 0 innerhalb von pts
+    await ensureDirections();
+    const result = await dirService.route({
+      origin: pts[0],
+      destination: pts[pts.length - 1],
+      waypoints: pts.slice(1, -1).map((p) => ({ location: p, stopover: true })),
+      travelMode: google.maps.TravelMode.DRIVING,
+    });
+    const route = result.routes[0];
+    if (!route) { clearRoute(); return; }
+    dirRenderer.setDirections(result);   // Linie zeichnen
+    const legs = route.legs;             // Länge = pts.length - 1
+    const startOffset = hasStart ? 1 : 0; // Index von Route-Element 0 in pts
 
-    // Jeder Stopp zeigt die EINGEHENDE Etappe (vom vorherigen Punkt) ->
-    // bei gesetztem Start zeigt der 1. Ort "Abfahrtsort -> 1. Ort".
-    state.stops.forEach((s, i) => {
+    // Jedes Route-Element zeigt die EINGEHENDE Etappe (vom vorherigen Punkt).
+    state.route.forEach((s, i) => {
       const incoming = legs[startOffset + i - 1];
       const el = document.querySelector(`#stopList .leg-dist[data-leg="${i}"]`);
       if (el && incoming) {
-        el.textContent = `↓ ${Math.round(incoming.distance / 1000)} km (${fmtDur(incoming.duration)})`;
+        el.textContent = `↓ ${Math.round(incoming.distance.value / 1000)} km (${fmtDur(incoming.duration.value)})`;
       }
     });
 
     // Reservierungs-Warnung: Ende(Vorplatz) + Fahrzeit > Start(nächster Platz)?
-    for (let i = 0; i < state.stops.length - 1; i++) {
-      const a = state.stops[i], b = state.stops[i + 1];
+    for (let i = 0; i < state.route.length - 1; i++) {
+      const a = state.route[i], b = state.route[i + 1];
       const leg = legs[startOffset + i]; // Etappe a -> b
       if (leg && a.reserviert && a.reserviert_bis && b.reserviert && b.reserviert_von) {
-        const arrival = new Date(a.reserviert_bis).getTime() + leg.duration * 1000;
+        const arrival = new Date(a.reserviert_bis).getTime() + leg.duration.value * 1000;
         const start = new Date(b.reserviert_von).getTime();
         if (arrival > start) {
           const w = document.querySelector(`#stopList .leg-warn[data-warn="${i + 1}"]`);
           if (w) {
             w.textContent = "⚠️ Reservierung knapp";
-            w.title = `Abfahrt frühestens ${fmtDT(a.reserviert_bis)} + ${fmtDur(leg.duration)} Fahrt`
+            w.title = `Abfahrt frühestens ${fmtDT(a.reserviert_bis)} + ${fmtDur(leg.duration.value)} Fahrt`
               + ` = Ankunft nach Reservierungsbeginn (${fmtDT(b.reserviert_von)}).`;
           }
         }
       }
     }
 
-    let txt = `Gesamtstrecke: ${Math.round(d.routes[0].distance / 1000)} km (${fmtDur(d.routes[0].duration)} Fahrzeit)`;
+    const totalM = legs.reduce((sum, l) => sum + l.distance.value, 0);
+    const totalS = legs.reduce((sum, l) => sum + l.duration.value, 0);
+    let txt = `Gesamtstrecke: ${Math.round(totalM / 1000)} km (${fmtDur(totalS)} Fahrzeit)`;
     if (hasEnd) {
-      const back = legs[legs.length - 1]; // letzter Ort -> Ziel
-      txt += ` · Rückweg zum Ziel: ${Math.round(back.distance / 1000)} km (${fmtDur(back.duration)})`;
+      const back = legs[legs.length - 1]; // letztes Element -> Ziel
+      txt += ` · Rückweg zum Ziel: ${Math.round(back.distance.value / 1000)} km (${fmtDur(back.duration.value)})`;
     }
     if (total) total.textContent = txt;
-  } catch (_) {
-    /* offline / Routing-Dienst nicht erreichbar -> ohne km */
+  } catch (err) {
+    // Routing fehlgeschlagen (z.B. Punkt nicht erreichbar) -> Linie weg, ohne km
+    clearRoute();
+    console.warn("Directions fehlgeschlagen:", err && err.message);
   }
 }
 
@@ -469,6 +527,9 @@ async function loadStops() {
   const all = await api.get(`/api/trips/${state.tripId}/stops`);
   state.stops = all.filter((s) => (s.kind || "stop") === "stop"); // Übernachtungsplätze
   state.pois = all.filter((s) => s.kind === "poi");                // reine Punkte
+  // Route = Übernachtungen + in_route-POIs, gemeinsam nach reihenfolge sortiert
+  state.route = [...state.stops, ...state.pois.filter((p) => p.in_route)]
+    .sort((a, b) => (a.reihenfolge - b.reihenfolge) || (a.id - b.id));
   updatePanelHeader();
   renderMarkers();
   renderList();
