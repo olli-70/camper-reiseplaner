@@ -15,10 +15,13 @@ Browser (PWA, Google Maps)  ──REST──►  FastAPI  ──►  SQLite (/da
   `stop` (Übernachtungsplatz, immer in Liste/Route) und `poi` (nur Punkt).
   `Stop.in_route` (nur POIs): POI als **Wegpunkt** in die Route aufnehmen –
   er erscheint dann sortierbar in der Liste und liegt auf der Routenlinie.
-- **Route:** `state.route` = Übernachtungen + `in_route`-POIs, gemeinsam nach
-  `reihenfolge` sortiert. **Google Directions** zeichnet die Linie
-  (`DirectionsRenderer`) und liefert die Etappen (`legs` = km + Fahrzeit);
-  Origin/Ziel = Start-/Zieladresse der Reise, max. 25 Zwischen-Wegpunkte.
+- **Route (etappenweise):** `state.route` = Übernachtungen + `in_route`-POIs,
+  gemeinsam nach `reihenfolge` sortiert. Anker = Start, jede Übernachtung, Ziel;
+  zwischen zwei Ankern liegt eine **Etappe**, deren `in_route`-POIs zu Wegpunkten
+  werden. Pro Etappe **eine eigene Google-Directions-Anfrage** + eine eigene,
+  abwechselnd gefärbte `google.maps.Polyline` (`routePolylines[]`). Dadurch greift
+  das 25-Wegpunkt-Limit nur je Etappe (praktisch nie) und km/Zeit sind pro Etappe
+  sichtbar: Übernachtungs-Zeile = Etappen-Summe, POI-Zeile = einzelner Umweg-Sprung.
 - **Externe Dienste (gratis-Kontingent):** Google Maps JS (Basiskarte + Directions,
   Key aus Vault via `/api/config`, Referrer-beschränkt), OSRM Demo (`/table` =
   POI→alle Plätze im POI-Popup), Google Places/Geocoder + Nominatim (Ortssuche/

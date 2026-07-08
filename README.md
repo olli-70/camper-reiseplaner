@@ -17,8 +17,10 @@ Live: **https://camper.dorf27.com** (nur intern / Tailnet)
 - Name, Status (geplant/besucht/reserviert), Notiz, Datum.
 - **Reservierung**: Häkchen + „reserviert von/bis"; Anzeige `🚐✅` (reserviert) / `🚐❓` (offen),
   Zeile `An: TT.MM HH:MM · ab: TT.MM HH:MM`.
-- **Route auf der Karte**: die Strecke wird als Linie gezeichnet (Google Directions).
-- **Straßen-km + Fahrzeit** je Etappe (eingehend, inkl. Abfahrtsort → 1. Ort) und gesamt.
+- **Route auf der Karte**: die Strecke wird gezeichnet – **je Etappe zwischen zwei
+  Übernachtungen eine eigene, abwechselnd gefärbte Linie** (Google Directions).
+- **Straßen-km + Fahrzeit**: Übernachtung zeigt die Etappen-Summe (seit letztem
+  Halt), POI seinen Umweg-Sprung; unten die Gesamtstrecke.
 - **⚠️ Reservierungs-Warnung**, wenn Ende(Vorplatz)+Fahrzeit > Start(nächster Platz).
 - Marker farblich nach Status, per Finger/Maus verschiebbar; Popup mit
   „In Apple/Google Maps öffnen" (Deep-Links, kein Key).
