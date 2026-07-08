@@ -894,9 +894,13 @@ async function overpassCampsites(points) {
   if (points.length < 2) return [];
   const around = "around:8000," +
     points.map((p) => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join(",");
+  // Camping-/Wohnmobilplätze inkl. der deutschen Variante "amenity=parking +
+  // caravans/motorhome" (viele Stellplätze sind nicht als caravan_site getaggt).
   const q = `[out:json][timeout:25];(`
-    + `node["tourism"~"^(camp_site|caravan_site)$"](${around});`
-    + `way["tourism"~"^(camp_site|caravan_site)$"](${around}););out center 80;`;
+    + `nwr["tourism"~"^(camp_site|caravan_site)$"](${around});`
+    + `nwr["amenity"="parking"]["caravans"="yes"](${around});`
+    + `nwr["amenity"="parking"]["motorhome"~"^(yes|designated)$"](${around});`
+    + `);out center 80;`;
   // Mehrere Overpass-Instanzen probieren (die Haupt-Instanz liefert oft 504/429).
   const endpoints = [
     "https://overpass-api.de/api/interpreter",
@@ -924,7 +928,9 @@ async function overpassCampsites(points) {
       const lng = e.lon ?? (e.center && e.center.lon);
       if (lat == null || lng == null) return null;
       const tags = e.tags || {};
-      const info = tags.tourism === "caravan_site" ? "Wohnmobil-Stellplatz" : "Campingplatz";
+      const info = tags.tourism === "caravan_site" ? "Wohnmobil-Stellplatz"
+        : tags.tourism === "camp_site" ? "Campingplatz"
+        : "Wohnmobil-Parkplatz";
       return { name: tags.name || info, lat, lng, source: "osm", info };
     }).filter(Boolean);
   } catch { return []; }
