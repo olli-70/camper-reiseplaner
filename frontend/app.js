@@ -897,13 +897,24 @@ async function overpassCampsites(points) {
   const q = `[out:json][timeout:25];(`
     + `node["tourism"~"^(camp_site|caravan_site)$"](${around});`
     + `way["tourism"~"^(camp_site|caravan_site)$"](${around}););out center 80;`;
+  // Mehrere Overpass-Instanzen probieren (die Haupt-Instanz liefert oft 504/429).
+  const endpoints = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+  ];
+  let d = null;
+  for (const url of endpoints) {
+    try {
+      const r = await fetch(url, {
+        method: "POST", body: "data=" + encodeURIComponent(q),
+        headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+      });
+      if (r.ok) { d = await r.json(); break; }
+    } catch { /* nächste Instanz */ }
+  }
+  if (!d) return [];
   try {
-    const r = await fetch("https://overpass-api.de/api/interpreter", {
-      method: "POST", body: "data=" + encodeURIComponent(q),
-      headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
-    });
-    if (!r.ok) return [];
-    const d = await r.json();
     return (d.elements || []).map((e) => {
       const lat = e.lat ?? (e.center && e.center.lat);
       const lng = e.lon ?? (e.center && e.center.lon);
