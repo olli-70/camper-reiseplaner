@@ -905,13 +905,17 @@ async function overpassCampsites(points) {
   ];
   let d = null;
   for (const url of endpoints) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000); // hängt sonst bei Überlast
     try {
       const r = await fetch(url, {
         method: "POST", body: "data=" + encodeURIComponent(q),
         headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+        signal: ctrl.signal,
       });
-      if (r.ok) { d = await r.json(); break; }
-    } catch { /* nächste Instanz */ }
+      if (r.ok) { d = await r.json(); clearTimeout(timer); break; }
+    } catch { /* Timeout/Fehler -> nächste Instanz */ }
+    clearTimeout(timer);
   }
   if (!d) return [];
   try {
@@ -966,17 +970,24 @@ async function searchAlongRoute() {
   }
   box.innerHTML = `<div class="search-hint">Suche Stellplätze entlang der Route …</div>`;
   clearSearchMarkers();
-  const [goog, osm] = await Promise.all([googleAlongRoute(path), overpassCampsites(path)]);
-  // Merge (Google zuerst = oft bessere Namen) + Dedup ~200 m
-  const merged = [];
-  for (const c of [...goog, ...osm]) {
-    if (!merged.some((m) => haversine(m, c) < 0.2)) merged.push(c);
-  }
-  if (!merged.length) {
+  const dedupe = (arr) => {
+    const out = [];
+    for (const c of arr) if (!out.some((m) => haversine(m, c) < 0.2)) out.push(c);
+    return out;
+  };
+  // OSM (kann langsam sein) im Hintergrund; Google zuerst sofort anzeigen.
+  const osmPromise = overpassCampsites(path);
+  const goog = await googleAlongRoute(path);
+  if (goog.length) renderCampResults(dedupe(goog));
+  else box.innerHTML = `<div class="search-hint">Suche Stellplätze (OpenStreetMap) …</div>`;
+  const osm = await osmPromise;
+  const full = dedupe([...goog, ...osm]);
+  clearSearchMarkers();
+  if (!full.length) {
     box.innerHTML = `<div class="search-hint">Keine Stellplätze entlang der Route gefunden.</div>`;
     return;
   }
-  renderCampResults(merged);
+  renderCampResults(full);
 }
 
 function renderCampResults(list) {
