@@ -32,8 +32,10 @@ let map = null;
 let infoWindow = null;
 let infoOpenId = null;
 let dirService = null;    // Google DirectionsService (Routenberechnung)
-let dirRenderer = null;   // zeichnet die Route als Linie
+let routePolylines = [];  // je Etappe eine eigene Linie (zwischen Übernachtungen)
 const STATUS_COLORS = { geplant: "#2563eb", besucht: "#16a34a", reserviert: "#ea580c" };
+// Etappen-Linien wechseln die Farbe (Tagesgrenzen sichtbar); kein Marker-Farbwert
+const SEGMENT_COLORS = ["#0f766e", "#06b6d4"];
 
 // Google Maps JS dynamisch mit Key aus /api/config laden (Key ist per Referrer
 // auf camper.dorf27.com beschränkt -> in der Auslieferung ohnehin sichtbar).
@@ -88,23 +90,18 @@ function addLocateControl() {
   map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(btn);
 }
 
-// Google DirectionsService/-Renderer lazy laden (Library "routes").
+// Google DirectionsService lazy laden (Library "routes"). Die Linien zeichnen
+// wir selbst als Polylines (eine je Etappe) -> volle Farb-/Mehrlinien-Kontrolle.
 async function ensureDirections() {
-  if (dirService && dirRenderer) return;
-  const { DirectionsService, DirectionsRenderer } =
-    await google.maps.importLibrary("routes");
+  if (dirService) return;
+  const { DirectionsService } = await google.maps.importLibrary("routes");
   dirService = new DirectionsService();
-  dirRenderer = new DirectionsRenderer({
-    map,
-    suppressMarkers: true,   // eigene Marker bleiben
-    preserveViewport: true,  // Ausschnitt macht loadStops (fitBounds)
-    polylineOptions: { strokeColor: "#0f766e", strokeWeight: 5, strokeOpacity: 0.85 },
-  });
 }
 
-// gezeichnete Route entfernen (zu wenige Punkte / Fehler)
-function clearRoute() {
-  if (dirRenderer) dirRenderer.setDirections({ routes: [] });
+// alle gezeichneten Etappen-Linien entfernen
+function clearRoutes() {
+  routePolylines.forEach((p) => p.setMap(null));
+  routePolylines = [];
 }
 
 // Klick auf die Karte: Ort ermitteln -> nachfragen -> anlegen.
@@ -375,9 +372,13 @@ function fmtDur(sec) {
   return `${m} min`;
 }
 
-// Straßenroute (Linie auf der Karte) + Etappen-km/Fahrzeit via Google Directions.
-// Route = [Start?] + state.route (Übernachtungen + in_route-POIs) + [Ziel?].
-// Google zieht die Linie (DirectionsRenderer); legs liefern distance+duration.
+// Straßenroute + Etappen-km/Fahrzeit via Google Directions – ETAPPENWEISE:
+// pro Abschnitt zwischen zwei Übernachtungs-Ankern (Start/Übernachtung/Ziel)
+// eine eigene Directions-Anfrage + eine eigene, abwechselnd gefärbte Linie.
+// In_route-POIs sind Wegpunkte INNERHALB ihrer Etappe. Vorteil: das 25-Wegpunkt-
+// Limit greift nur pro Etappe (praktisch nie) und man sieht km/Zeit je Etappe.
+//   Übernachtung-Zeile  -> Etappen-Summe (seit letzter Übernachtung/Start)
+//   POI-Zeile           -> einzelner Wegpunkt-Sprung (Umweg)
 async function computeDistances() {
   document.querySelectorAll("#stopList .leg-dist").forEach((e) => (e.textContent = ""));
   document.querySelectorAll("#stopList .leg-warn").forEach((e) => { e.textContent = ""; e.title = ""; });
@@ -388,77 +389,103 @@ async function computeDistances() {
   const hasStart = t.start_lat != null && t.start_lng != null;
   const hasEnd = t.end_lat != null && t.end_lng != null;
 
-  // Routenpunkte: [Start?] + Route-Elemente + [Ziel?]
-  const pts = [];
-  if (hasStart) pts.push({ lat: t.start_lat, lng: t.start_lng });
-  state.route.forEach((s) => pts.push({ lat: s.lat, lng: s.lng }));
-  if (hasEnd) pts.push({ lat: t.end_lat, lng: t.end_lng });
-  if (pts.length < 2) { clearRoute(); return; }
+  // Geordnete Punktfolge: [Start?] + Route-Elemente + [Ziel?]. routeIdx zeigt auf
+  // die Listenzeile (>=0), Start/Ziel haben keine Zeile (routeIdx=null).
+  const seq = [];
+  if (hasStart) seq.push({ lat: t.start_lat, lng: t.start_lng, anchor: true, routeIdx: null });
+  state.route.forEach((s, i) => seq.push({
+    lat: s.lat, lng: s.lng, anchor: s.kind !== "poi", routeIdx: i, ref: s,
+  }));
+  if (hasEnd) seq.push({ lat: t.end_lat, lng: t.end_lng, anchor: true, routeIdx: null });
+  if (seq.length < 2) { clearRoutes(); return; }
 
-  // Google: Origin + Destination + max. 25 Zwischen-Wegpunkte.
-  const waypointCount = pts.length - 2;
-  if (waypointCount > 25) {
-    clearRoute();
-    if (total) total.textContent =
-      `Zu viele Wegpunkte für die Routenanzeige (${waypointCount} > 25). `
-      + `Bitte einige POIs aus der Route nehmen.`;
-    return;
+  // Anker = Segmentgrenzen: erster + letzter Punkt sowie jede Übernachtung.
+  const anchorPos = [];
+  seq.forEach((n, i) => {
+    if (i === 0 || i === seq.length - 1 || n.anchor) anchorPos.push(i);
+  });
+  // Etappen zwischen aufeinanderfolgenden Ankern; POIs dazwischen = Wegpunkte.
+  const segments = [];
+  for (let k = 0; k < anchorPos.length - 1; k++) {
+    const a = anchorPos[k], b = anchorPos[k + 1];
+    segments.push({ from: seq[a], to: seq[b], waypoints: seq.slice(a + 1, b) });
   }
+  if (!segments.length) { clearRoutes(); return; }
 
   try {
     await ensureDirections();
-    const result = await dirService.route({
-      origin: pts[0],
-      destination: pts[pts.length - 1],
-      waypoints: pts.slice(1, -1).map((p) => ({ location: p, stopover: true })),
-      travelMode: google.maps.TravelMode.DRIVING,
-    });
-    const route = result.routes[0];
-    if (!route) { clearRoute(); return; }
-    dirRenderer.setDirections(result);   // Linie zeichnen
-    const legs = route.legs;             // Länge = pts.length - 1
-    const startOffset = hasStart ? 1 : 0; // Index von Route-Element 0 in pts
+    // Eine Directions-Anfrage je Etappe (parallel). Einzelne Fehler -> null.
+    const results = await Promise.all(segments.map((seg) =>
+      dirService.route({
+        origin: { lat: seg.from.lat, lng: seg.from.lng },
+        destination: { lat: seg.to.lat, lng: seg.to.lng },
+        waypoints: seg.waypoints.map((w) => ({ location: { lat: w.lat, lng: w.lng }, stopover: true })),
+        travelMode: google.maps.TravelMode.DRIVING,
+      }).catch(() => null)));
 
-    // Jedes Route-Element zeigt die EINGEHENDE Etappe (vom vorherigen Punkt).
-    state.route.forEach((s, i) => {
-      const incoming = legs[startOffset + i - 1];
-      const el = document.querySelector(`#stopList .leg-dist[data-leg="${i}"]`);
-      if (el && incoming) {
-        el.textContent = `↓ ${Math.round(incoming.distance.value / 1000)} km (${fmtDur(incoming.duration.value)})`;
-      }
+    clearRoutes();
+    let grandM = 0, grandS = 0, backM = 0, backS = 0, anyFail = false;
+
+    results.forEach((res, si) => {
+      const seg = segments[si];
+      const route = res && res.routes && res.routes[0];
+      if (!route) { anyFail = true; return; }
+      const legs = route.legs; // = [from, ...waypoints, to] paarweise
+      // Etappen-Linie zeichnen (abwechselnde Farbe)
+      routePolylines.push(new google.maps.Polyline({
+        path: route.overview_path, map,
+        strokeColor: SEGMENT_COLORS[si % SEGMENT_COLORS.length],
+        strokeWeight: 5, strokeOpacity: 0.85,
+      }));
+      // Wegpunkt-POIs: jeweils der einzelne eingehende Sprung
+      seg.waypoints.forEach((wp, wi) => {
+        const leg = legs[wi];
+        if (leg && wp.routeIdx != null) setLeg(wp.routeIdx, leg.distance.value, leg.duration.value);
+      });
+      // Etappen-Summe (from -> to durch alle POIs)
+      const segM = legs.reduce((s, l) => s + l.distance.value, 0);
+      const segS = legs.reduce((s, l) => s + l.duration.value, 0);
+      seg._m = segM; seg._s = segS;
+      grandM += segM; grandS += segS;
+      // Summe der Zeile des Ziel-Ankers (Übernachtung), falls es eine Liste-Zeile ist
+      if (seg.to.routeIdx != null) setLeg(seg.to.routeIdx, segM, segS);
+      // letzte Etappe -> Rückweg zum Ziel (nur wenn Ziel gesetzt)
+      if (hasEnd && si === results.length - 1) { backM = segM; backS = segS; }
     });
 
-    // Reservierungs-Warnung: Ende(Vorplatz) + Fahrzeit > Start(nächster Platz)?
-    for (let i = 0; i < state.route.length - 1; i++) {
-      const a = state.route[i], b = state.route[i + 1];
-      const leg = legs[startOffset + i]; // Etappe a -> b
-      if (leg && a.reserviert && a.reserviert_bis && b.reserviert && b.reserviert_von) {
-        const arrival = new Date(a.reserviert_bis).getTime() + leg.duration.value * 1000;
-        const start = new Date(b.reserviert_von).getTime();
-        if (arrival > start) {
-          const w = document.querySelector(`#stopList .leg-warn[data-warn="${i + 1}"]`);
+    // Reservierungs-Warnung zwischen aufeinanderfolgenden reservierten
+    // Übernachtungen: Ende(Vorplatz) + Etappen-Fahrzeit > Beginn(nächster)?
+    for (let si = 0; si < segments.length; si++) {
+      const seg = segments[si];
+      const a = seg.from.ref, b = seg.to.ref; // ref nur bei Listen-Elementen
+      if (a && b && a.kind !== "poi" && b.kind !== "poi" && seg._s != null &&
+          a.reserviert && a.reserviert_bis && b.reserviert && b.reserviert_von) {
+        const arrival = new Date(a.reserviert_bis).getTime() + seg._s * 1000;
+        if (arrival > new Date(b.reserviert_von).getTime()) {
+          const w = document.querySelector(`#stopList .leg-warn[data-warn="${seg.to.routeIdx}"]`);
           if (w) {
             w.textContent = "⚠️ Reservierung knapp";
-            w.title = `Abfahrt frühestens ${fmtDT(a.reserviert_bis)} + ${fmtDur(leg.duration.value)} Fahrt`
+            w.title = `Abfahrt frühestens ${fmtDT(a.reserviert_bis)} + ${fmtDur(seg._s)} Fahrt`
               + ` = Ankunft nach Reservierungsbeginn (${fmtDT(b.reserviert_von)}).`;
           }
         }
       }
     }
 
-    const totalM = legs.reduce((sum, l) => sum + l.distance.value, 0);
-    const totalS = legs.reduce((sum, l) => sum + l.duration.value, 0);
-    let txt = `Gesamtstrecke: ${Math.round(totalM / 1000)} km (${fmtDur(totalS)} Fahrzeit)`;
-    if (hasEnd) {
-      const back = legs[legs.length - 1]; // letztes Element -> Ziel
-      txt += ` · Rückweg zum Ziel: ${Math.round(back.distance.value / 1000)} km (${fmtDur(back.duration.value)})`;
-    }
+    let txt = `Gesamtstrecke: ${Math.round(grandM / 1000)} km (${fmtDur(grandS)} Fahrzeit)`;
+    if (hasEnd) txt += ` · Rückweg zum Ziel: ${Math.round(backM / 1000)} km (${fmtDur(backS)})`;
+    if (anyFail) txt += " · ⚠️ eine Etappe konnte nicht berechnet werden";
     if (total) total.textContent = txt;
   } catch (err) {
-    // Routing fehlgeschlagen (z.B. Punkt nicht erreichbar) -> Linie weg, ohne km
-    clearRoute();
+    clearRoutes();
     console.warn("Directions fehlgeschlagen:", err && err.message);
   }
+}
+
+// km/Zeit in die Listenzeile i schreiben
+function setLeg(i, meters, seconds) {
+  const el = document.querySelector(`#stopList .leg-dist[data-leg="${i}"]`);
+  if (el) el.textContent = `↓ ${Math.round(meters / 1000)} km (${fmtDur(seconds)})`;
 }
 
 // ---- Touren / Panel-Kopf -----------------------------------------------------

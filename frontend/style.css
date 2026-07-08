@@ -51,13 +51,15 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   box-shadow: 0 4px 14px #0004; min-width: 200px; max-width: 80vw;
   max-height: 60vh; overflow: auto; padding: .25rem; margin-top: .25rem;
 }
-.tour-menu-item {
-  display: block; width: 100%; text-align: left; background: none;
+/* Unter #tourMenu gescoped, damit die ID-Spezifität die generische
+   Regel "#topbar button { color:#fff }" schlägt (sonst weiß auf weiß). */
+#tourMenu .tour-menu-item {
+  display: block; width: 100%; text-align: left; background: #fff;
   border: none; color: #111; padding: .55rem .6rem; border-radius: 6px;
   cursor: pointer; font-size: .95rem;
 }
-.tour-menu-item:hover { background: #f2f2f2; }
-.tour-menu-item.active { background: var(--bg); color: #fff; }
+#tourMenu .tour-menu-item:hover { background: #f2f2f2; }
+#tourMenu .tour-menu-item.active { background: var(--bg); color: #fff; }
 .trip-dates { font-size: .8rem; color: #555; margin: 0 0 .4rem; }
 
 /* Ort-Suche */
