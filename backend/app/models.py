@@ -26,6 +26,7 @@ class Trip(SQLModel, table=True):
     end_address: Optional[str] = None
     end_lat: Optional[float] = None
     end_lng: Optional[float] = None
+    gesperrt: bool = False  # Reise gegen versehentliches Ändern gesperrt
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -67,6 +68,7 @@ class TripUpdate(SQLModel):
     end_address: Optional[str] = None
     end_lat: Optional[float] = None
     end_lng: Optional[float] = None
+    gesperrt: Optional[bool] = None
 
 
 class StopCreate(SQLModel):

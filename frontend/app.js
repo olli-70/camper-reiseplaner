@@ -88,6 +88,7 @@ function addLocateControl() {
 // Klick auf die Karte: Ort ermitteln -> nachfragen -> anlegen.
 async function onMapClick(e) {
   if (!state.tripId) { alert("Bitte zuerst eine Reise anlegen (＋ Reise)."); return; }
+  if (isLocked()) { lockAlert(); return; }
   const lat = e.latLng.lat();
   const lng = e.latLng.lng();
   const hintEl = document.getElementById("hint");
@@ -164,7 +165,7 @@ function renderMarkers() {
   // Übernachtungsplätze: farbige Kreise nach Status, 🔒 bei Reservierung
   state.stops.forEach((s) => {
     const marker = new google.maps.Marker({
-      position: { lat: s.lat, lng: s.lng }, map, draggable: true, title: s.name,
+      position: { lat: s.lat, lng: s.lng }, map, draggable: !isLocked(), title: s.name,
       icon: {
         path: google.maps.SymbolPath.CIRCLE,
         fillColor: STATUS_COLORS[s.status] || STATUS_COLORS.geplant,
@@ -187,7 +188,7 @@ function renderMarkers() {
   // POIs: kleinere violette Punkte; Klick -> Entfernungen zu allen Plätzen
   state.pois.forEach((p) => {
     const marker = new google.maps.Marker({
-      position: { lat: p.lat, lng: p.lng }, map, draggable: true, title: p.name,
+      position: { lat: p.lat, lng: p.lng }, map, draggable: !isLocked(), title: p.name,
       icon: {
         path: google.maps.SymbolPath.CIRCLE,
         fillColor: "#7c3aed", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2, scale: 6,
@@ -286,8 +287,9 @@ function renderList() {
     const resLine = s.reserviert && (s.reserviert_von || s.reserviert_bis)
       ? `<span class="stop-res">An: ${fmtDMHM(s.reserviert_von) || "?"} · ab: ${fmtDMHM(s.reserviert_bis) || "?"}</span>`
       : "";
+    const handle = isLocked() ? "" : `<span class="drag-handle" title="Ziehen zum Sortieren">⠿</span>`;
     li.innerHTML =
-      `<span class="drag-handle" title="Ziehen zum Sortieren">⠿</span>` +
+      handle +
       `<span class="stop-name">${icon}${escapeHtml(s.name)}</span>` +
       `<span class="badge ${s.status}">${s.status}</span>` +
       resLine +
@@ -300,7 +302,7 @@ function renderList() {
     };
     ul.appendChild(li);
   });
-  if (window.Sortable) {
+  if (window.Sortable && !isLocked()) {
     sortable = window.Sortable.create(ul, {
       handle: ".drag-handle",
       animation: 150,
@@ -407,6 +409,15 @@ function currentTrip() {
   return state.trips.find((t) => t.id == state.tripId) || null;
 }
 
+// Reise gegen versehentliches Ändern gesperrt? (jederzeit im ⚙️ umschaltbar)
+function isLocked() {
+  const t = currentTrip();
+  return !!(t && t.gesperrt);
+}
+function lockAlert() {
+  alert("Diese Reise ist abgesperrt. Zum Ändern im Tour-Menü ⚙️ die Sperre lösen.");
+}
+
 function renderTourMenu() {
   const menu = document.getElementById("tourMenu");
   menu.innerHTML = "";
@@ -421,8 +432,9 @@ function renderTourMenu() {
 
 function updatePanelHeader() {
   const t = currentTrip();
-  document.getElementById("tourNameLabel").textContent = t ? t.name : "–";
-  document.getElementById("tripTitle").textContent = t ? t.name : "–";
+  const lock = t && t.gesperrt ? "🔒 " : "";
+  document.getElementById("tourNameLabel").textContent = t ? lock + t.name : "–";
+  document.getElementById("tripTitle").textContent = t ? lock + t.name : "–";
   const dd = document.getElementById("tripDates");
   if (dd) {
     dd.textContent = t && (t.start_datum || t.end_datum)
@@ -574,6 +586,7 @@ function closeForm() {
 }
 
 async function saveForm() {
+  if (isLocked()) { lockAlert(); return; }
   const payload = {};
   STOP_FIELDS.forEach((f) => {
     const el = document.getElementById(fieldId(f.key));
@@ -587,6 +600,12 @@ async function saveForm() {
   // abhängige Felder leeren, wenn ihr Steuerfeld aus ist
   STOP_FIELDS.forEach((f) => { if (f.showIf && !payload[f.showIf]) payload[f.key] = null; });
   if (!payload.name) { alert("Bitte einen Namen eingeben."); return; }
+  // "ab" (Reservierungsende) darf nicht vor "an" (Reservierungsbeginn) liegen
+  if (payload.reserviert && payload.reserviert_von && payload.reserviert_bis &&
+      new Date(payload.reserviert_bis) < new Date(payload.reserviert_von)) {
+    alert('Das "ab"-Datum/-Uhrzeit darf nicht vor dem "an"-Datum/-Uhrzeit liegen.');
+    return;
+  }
   try {
     if (state.editingId) {
       await api.send("PATCH", `/api/stops/${state.editingId}`, payload);
@@ -600,6 +619,7 @@ async function saveForm() {
 }
 
 async function deleteStop(id) {
+  if (isLocked()) { lockAlert(); return; }
   if (!confirm("Diesen Stopp löschen?")) return;
   await api.send("DELETE", `/api/stops/${id}`);
   await loadStops();
@@ -664,6 +684,7 @@ function openTourForm() {
   document.getElementById("t_end").value = t.end_address || "";
   document.getElementById("t_abfahrt").value = t.start_datum || "";
   document.getElementById("t_rueckkehr").value = t.end_datum || "";
+  document.getElementById("t_gesperrt").checked = !!t.gesperrt;
   document.getElementById("t_status").textContent = "";
   document.getElementById("tourForm").classList.remove("hidden");
 }
@@ -690,10 +711,29 @@ function googleGeocode(query) {
   });
 }
 
-// Ortssuche: Google zuerst (beste Adressen), sonst OpenStreetMap/Nominatim (gratis).
-async function searchPlaces(query) {
-  const g = await googleGeocode(query);
-  if (g && g.length) return g;
+// Google Places Text-Suche (findet Firmen/Campingplätze *und* Adressen).
+async function googlePlacesSearch(query) {
+  try {
+    if (!(window.google && google.maps && google.maps.importLibrary)) return [];
+    const { Place } = await google.maps.importLibrary("places");
+    const { places } = await Place.searchByText({
+      textQuery: query,
+      fields: ["displayName", "formattedAddress", "location"],
+      maxResultCount: 6,
+      language: "de",
+    });
+    if (!places || !places.length) return [];
+    return places.map((p) => ({
+      display: (p.displayName ? p.displayName + " · " : "") + (p.formattedAddress || ""),
+      name: p.displayName || String(p.formattedAddress || "").split(",")[0],
+      lat: p.location.lat(),
+      lng: p.location.lng(),
+    }));
+  } catch { return []; }
+}
+
+// OpenStreetMap/Nominatim-Suche (gratis, Fallback).
+async function nominatimSearch(query) {
   try {
     const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=de&q="
       + encodeURIComponent(query);
@@ -705,6 +745,15 @@ async function searchPlaces(query) {
       lat: parseFloat(x.lat), lng: parseFloat(x.lon),
     }));
   } catch { return []; }
+}
+
+// Ortssuche: Places (Namen+Adressen) -> Geocoder (Adressen) -> OSM (Fallback).
+async function searchPlaces(query) {
+  let r = await googlePlacesSearch(query);
+  if (r.length) return r;
+  r = await googleGeocode(query);
+  if (r && r.length) return r;
+  return await nominatimSearch(query);
 }
 
 // Adresse -> {lat,lng} (für Tour-Start/Ziel), gleiche Google-zuerst-Logik.
@@ -742,6 +791,7 @@ async function doSearch() {
 
 async function addSearchResult(name, lat, lng, kind) {
   if (!state.tripId) { alert("Bitte zuerst eine Reise anlegen (＋)."); return; }
+  if (isLocked()) { lockAlert(); return; }
   try {
     await api.send("POST", `/api/trips/${state.tripId}/stops`,
       { name, lat, lng, status: "geplant", kind });
@@ -769,6 +819,7 @@ async function saveTourForm() {
     start_address: startAddr || null,
     end_address: endAddr || null,
     start_lat: null, start_lng: null, end_lat: null, end_lng: null,
+    gesperrt: document.getElementById("t_gesperrt").checked,
   };
   // Geocodieren; unveränderte Adressen behalten ihre vorhandenen Koordinaten.
   if (startAddr) {
@@ -792,6 +843,8 @@ async function saveTourForm() {
     closeTourForm();
     updatePanelHeader();
     renderTourMenu();
+    renderMarkers();  // Sperre wirkt sofort (Marker (nicht) ziehbar)
+    renderList();     // Drag-Handle/Sortable an Sperre anpassen
     computeDistances();
   } catch (e) { statusEl.textContent = "Speichern fehlgeschlagen: " + e.message; }
 }
