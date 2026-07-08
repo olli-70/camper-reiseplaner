@@ -910,7 +910,7 @@ async function overpassCampsites(points) {
   let d = null;
   for (const url of endpoints) {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000); // hängt sonst bei Überlast
+    const timer = setTimeout(() => ctrl.abort(), 12000); // öffentl. Overpass ist oft träge; nicht-blockierend (Google zeigt zuerst)
     try {
       const r = await fetch(url, {
         method: "POST", body: "data=" + encodeURIComponent(q),
