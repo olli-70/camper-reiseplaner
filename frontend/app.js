@@ -1027,22 +1027,37 @@ async function searchAlongRoute() {
   // OSM (kann langsam sein) im Hintergrund; Google zuerst sofort anzeigen.
   const osmPromise = overpassCampsites(path);
   const goog = await googleAlongRoute(path);
-  if (goog.length) renderCampResults(dedupe(goog));
+  if (goog.length) renderCampResults(dedupe(goog), legLabel);
   else box.innerHTML = `<div class="search-hint">Suche Stellplätze (OpenStreetMap) …</div>`;
   const osm = await osmPromise;
   const full = dedupe([...goog, ...osm]);
   clearSearchMarkers();
   if (!full.length) {
-    box.innerHTML = `<div class="search-hint">Keine Stellplätze entlang der Route gefunden.</div>`;
+    box.innerHTML = `<div class="search-hint">Keine Stellplätze entlang ${escapeHtml(legLabel)} gefunden.</div>`;
     return;
   }
-  renderCampResults(full);
+  renderCampResults(full, legLabel);
 }
 
-function renderCampResults(list) {
+function renderCampResults(list, label) {
   const box = document.getElementById("searchResults");
-  box.innerHTML =
-    `<div class="search-hint">${list.length} Stellplätze entlang der Route — als Übernachtung 🛏 oder Punkt 📍 übernehmen:</div>`;
+  // Ein-/Ausklapp-Zustand über das Google->OSM-Nachladen hinweg beibehalten.
+  const prev = box.querySelector("details.camp-results");
+  const wasOpen = prev ? prev.open : true;
+  box.innerHTML = "";
+
+  const det = document.createElement("details");
+  det.className = "camp-results";
+  det.open = wasOpen;
+  const sum = document.createElement("summary");
+  sum.innerHTML =
+    `<span class="camp-sum-text">🏕 ${list.length} Stellplätze entlang ${escapeHtml(label || "der Route")}</span>` +
+    `<button class="camp-clear" title="Ergebnisse & Pins entfernen">✕</button>`;
+  det.appendChild(sum);
+
+  const wrap = document.createElement("div");
+  wrap.className = "camp-list";
+  wrap.innerHTML = `<div class="search-hint">Als Übernachtung 🛏 oder Punkt 📍 übernehmen:</div>`;
   list.forEach((res) => {
     const marker = new google.maps.Marker({
       position: { lat: res.lat, lng: res.lng }, map, title: res.name,
@@ -1067,8 +1082,16 @@ function renderCampResults(list) {
     };
     row.querySelector('[data-k="stop"]').onclick = () => addSearchResult(res.name, res.lat, res.lng, "stop");
     row.querySelector('[data-k="poi"]').onclick = () => addSearchResult(res.name, res.lat, res.lng, "poi");
-    box.appendChild(row);
+    wrap.appendChild(row);
   });
+  det.appendChild(wrap);
+  box.appendChild(det);
+
+  sum.querySelector(".camp-clear").onclick = (e) => {
+    e.preventDefault(); e.stopPropagation();  // nicht auf-/zuklappen, sondern wegräumen
+    clearSearchMarkers();
+    box.innerHTML = "";
+  };
 }
 
 // ---- Ort-Suche (Nominatim) -> als Übernachtungsplatz oder POI hinzufügen -----

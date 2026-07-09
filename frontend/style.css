@@ -86,6 +86,24 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 #routeSearchBtn:hover { background: #e6f1ef; }
 .search-result .sr-info { color: #777; font-weight: 400; }
 #searchResults { margin-bottom: .3rem; }
+/* Einklappbare Fund-Liste der Routensuche */
+.camp-results { margin-bottom: .3rem; }
+.camp-results > summary {
+  cursor: pointer; user-select: none; list-style-position: inside;
+  padding: .45rem .55rem; font-size: .85rem; font-weight: 600;
+  color: var(--bg); background: #f0f7f6; border-radius: 8px;
+}
+.camp-results[open] > summary { border-radius: 8px 8px 0 0; }
+.camp-sum-text { margin-right: .3rem; }
+.camp-clear {
+  float: right; border: none; background: none; color: #999;
+  font-size: 1rem; line-height: 1.2; cursor: pointer; padding: 0 .1rem;
+}
+.camp-clear:hover { color: #b91c1c; }
+.camp-list {
+  padding: .1rem .5rem .2rem; border: 1px solid #eee; border-top: none;
+  border-radius: 0 0 8px 8px; max-height: 45vh; overflow-y: auto;
+}
 .search-hint { font-size: .8rem; color: #777; padding: .3rem 0; }
 .search-result {
   display: flex; align-items: center; gap: .4rem;
