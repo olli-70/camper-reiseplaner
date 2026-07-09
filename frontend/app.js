@@ -32,7 +32,6 @@ let map = null;
 let infoWindow = null;
 let infoOpenId = null;
 let geomLib = null;       // Google "geometry"-Library (Polyline dekodieren)
-let dirService = null;    // Client-DirectionsService (Fallback, solange kein Server-Key)
 let routePolylines = [];  // je Etappe eine eigene Linie (zwischen Übernachtungen)
 let routeSegments = [];   // je Etappe { label, path } – für Etappen-Auswahl der Suche
 let searchMarkers = [];   // temporäre Fund-Pins der Routensuche
@@ -100,45 +99,21 @@ async function ensureGeometry() {
   return geomLib;
 }
 
-// Client-DirectionsService – nur als Fallback, solange kein Server-Key gesetzt ist.
-async function ensureDirections() {
-  if (!dirService) {
-    const { DirectionsService } = await google.maps.importLibrary("routes");
-    dirService = new DirectionsService();
-  }
-  return dirService;
-}
-
-// Eine Etappe routen: Backend (Server-Key) bevorzugt, sonst Client-Fallback.
+// Eine Etappe routen – rein server-seitig (/api/directions, Server-Key).
 // Ergebnis normalisiert: { legs:[{distance(m),duration(s)}], path: LatLng[] } | null
 async function fetchSegmentRoute(seg) {
-  const origin = { lat: seg.from.lat, lng: seg.from.lng };
-  const destination = { lat: seg.to.lat, lng: seg.to.lng };
-  // 1) Backend (server-seitiger Key, Ziel-Zustand)
   try {
     const r = await api.send("POST", "/api/directions", {
-      origin, destination, waypoints: seg.waypoints.map((w) => ({ lat: w.lat, lng: w.lng })),
+      origin: { lat: seg.from.lat, lng: seg.from.lng },
+      destination: { lat: seg.to.lat, lng: seg.to.lng },
+      waypoints: seg.waypoints.map((w) => ({ lat: w.lat, lng: w.lng })),
     });
     if (r && r.ok) {
       const { encoding } = await ensureGeometry();
       return { legs: r.legs, path: encoding.decodePath(r.polyline) };
     }
-  } catch { /* Backend nicht verfügbar -> Fallback */ }
-  // 2) Fallback: client-seitig (funktioniert mit dem Render-Key, solange dieser
-  //    Directions erlaubt) – greift nur, bis der Server-Key aktiv ist.
-  try {
-    const svc = await ensureDirections();
-    const res = await svc.route({
-      origin, destination,
-      waypoints: seg.waypoints.map((w) => ({ location: { lat: w.lat, lng: w.lng }, stopover: true })),
-      travelMode: google.maps.TravelMode.DRIVING,
-    });
-    const route = res.routes[0];
-    return {
-      legs: route.legs.map((l) => ({ distance: l.distance.value, duration: l.duration.value })),
-      path: route.overview_path,
-    };
-  } catch { return null; }
+  } catch { /* Routing nicht verfügbar */ }
+  return null;
 }
 
 // alle gezeichneten Etappen-Linien entfernen
