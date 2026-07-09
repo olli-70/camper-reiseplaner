@@ -492,7 +492,7 @@ async function computeDistances() {
       // Summe der Zeile des Ziel-Ankers (Übernachtung), falls es eine Liste-Zeile ist
       if (seg.to.routeIdx != null) setLeg(seg.to.routeIdx, segM, segS);
       // letzte Etappe -> Rückweg zum Ziel (nur wenn Ziel gesetzt)
-      if (hasEnd && si === results.length - 1) { backM = segM; backS = segS; }
+      if (hasEnd && si === routed.length - 1) { backM = segM; backS = segS; }
     });
 
     // Reservierungs-Warnung zwischen aufeinanderfolgenden reservierten
