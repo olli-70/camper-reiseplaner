@@ -31,10 +31,9 @@ const state = {
 let map = null;
 let infoWindow = null;
 let infoOpenId = null;
-let dirService = null;    // Google DirectionsService (Routenberechnung)
+let geomLib = null;       // Google "geometry"-Library (Polyline dekodieren)
 let routePolylines = [];  // je Etappe eine eigene Linie (zwischen Übernachtungen)
 let routeSegments = [];   // je Etappe { label, path } – für Etappen-Auswahl der Suche
-let mapsApiKey = null;    // Google-Maps-Key (aus /api/config) – auch für Places-REST
 let searchMarkers = [];   // temporäre Fund-Pins der Routensuche
 const STATUS_COLORS = { geplant: "#2563eb", besucht: "#16a34a", reserviert: "#ea580c" };
 // Etappen-Linien wechseln die Farbe (Tagesgrenzen sichtbar); kein Marker-Farbwert
@@ -45,7 +44,6 @@ const SEGMENT_COLORS = ["#0f766e", "#06b6d4"];
 async function loadGoogleMaps() {
   const cfg = await api.get("/api/config");
   if (!cfg.googleMapsApiKey) throw new Error("Kein Google-Maps-Key konfiguriert");
-  mapsApiKey = cfg.googleMapsApiKey;
   await new Promise((resolve, reject) => {
     window.__gmapsReady = resolve;
     const sc = document.createElement("script");
@@ -94,12 +92,11 @@ function addLocateControl() {
   map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(btn);
 }
 
-// Google DirectionsService lazy laden (Library "routes"). Die Linien zeichnen
-// wir selbst als Polylines (eine je Etappe) -> volle Farb-/Mehrlinien-Kontrolle.
-async function ensureDirections() {
-  if (dirService) return;
-  const { DirectionsService } = await google.maps.importLibrary("routes");
-  dirService = new DirectionsService();
+// Routing läuft server-seitig (/api/directions). Client braucht nur die
+// "geometry"-Library, um die vom Server gelieferte Polyline zu dekodieren.
+async function ensureGeometry() {
+  if (!geomLib) geomLib = await google.maps.importLibrary("geometry");
+  return geomLib;
 }
 
 // alle gezeichneten Etappen-Linien entfernen
@@ -417,15 +414,14 @@ async function computeDistances() {
   if (!segments.length) { clearRoutes(); routeSegments = []; renderLegSelector(); return; }
 
   try {
-    await ensureDirections();
-    // Eine Directions-Anfrage je Etappe (parallel). Einzelne Fehler -> null.
+    const { encoding } = await ensureGeometry();
+    // Eine Directions-Anfrage je Etappe ans Backend (parallel). Fehler -> null.
     const results = await Promise.all(segments.map((seg) =>
-      dirService.route({
+      api.send("POST", "/api/directions", {
         origin: { lat: seg.from.lat, lng: seg.from.lng },
         destination: { lat: seg.to.lat, lng: seg.to.lng },
-        waypoints: seg.waypoints.map((w) => ({ location: { lat: w.lat, lng: w.lng }, stopover: true })),
-        travelMode: google.maps.TravelMode.DRIVING,
-      }).catch(() => null)));
+        waypoints: seg.waypoints.map((w) => ({ lat: w.lat, lng: w.lng })),
+      }).then((r) => (r && r.ok ? r : null)).catch(() => null)));
 
     clearRoutes();
     routeSegments = [];
@@ -433,28 +429,28 @@ async function computeDistances() {
 
     results.forEach((res, si) => {
       const seg = segments[si];
-      const route = res && res.routes && res.routes[0];
-      if (!route) { anyFail = true; return; }
-      const legs = route.legs; // = [from, ...waypoints, to] paarweise
+      if (!res) { anyFail = true; return; }
+      const legs = res.legs; // [{distance(m), duration(s)}] je Teilstück
+      const path = encoding.decodePath(res.polyline); // Server-Polyline -> LatLng[]
       // Etappen-Linie zeichnen (abwechselnde Farbe)
       routePolylines.push(new google.maps.Polyline({
-        path: route.overview_path, map,
+        path, map,
         strokeColor: SEGMENT_COLORS[si % SEGMENT_COLORS.length],
         strokeWeight: 5, strokeOpacity: 0.85,
       }));
       // Etappe für die Etappen-Auswahl der Suche merken (Label + Straßenverlauf)
       routeSegments.push({
         label: `${seg.from.name} → ${seg.to.name}`,
-        path: route.overview_path.map((ll) => ({ lat: ll.lat(), lng: ll.lng() })),
+        path: path.map((ll) => ({ lat: ll.lat(), lng: ll.lng() })),
       });
       // Wegpunkt-POIs: jeweils der einzelne eingehende Sprung
       seg.waypoints.forEach((wp, wi) => {
         const leg = legs[wi];
-        if (leg && wp.routeIdx != null) setLeg(wp.routeIdx, leg.distance.value, leg.duration.value);
+        if (leg && wp.routeIdx != null) setLeg(wp.routeIdx, leg.distance, leg.duration);
       });
       // Etappen-Summe (from -> to durch alle POIs)
-      const segM = legs.reduce((s, l) => s + l.distance.value, 0);
-      const segS = legs.reduce((s, l) => s + l.duration.value, 0);
+      const segM = legs.reduce((s, l) => s + l.distance, 0);
+      const segS = legs.reduce((s, l) => s + l.duration, 0);
       seg._m = segM; seg._s = segS;
       grandM += segM; grandS += segS;
       // Summe der Zeile des Ziel-Ankers (Übernachtung), falls es eine Liste-Zeile ist
@@ -809,44 +805,23 @@ function openTourForm() {
 }
 function closeTourForm() { document.getElementById("tourForm").classList.add("hidden"); }
 
-// Google-Geocoder (beste Adressdaten). null bei REQUEST_DENIED/Fehler -> Fallback.
-function googleGeocode(query) {
-  return new Promise((resolve) => {
-    if (!(window.google && google.maps && google.maps.Geocoder)) { resolve(null); return; }
-    try {
-      new google.maps.Geocoder().geocode({ address: query }, (results, status) => {
-        if (status === "OK" && results && results.length) {
-          resolve(results.map((r) => ({
-            display: r.formatted_address,
-            name: String(r.formatted_address).split(",")[0],
-            lat: r.geometry.location.lat(),
-            lng: r.geometry.location.lng(),
-          })));
-        } else {
-          resolve(null); // z.B. Geocoding-API nicht freigeschaltet -> Fallback
-        }
-      });
-    } catch { resolve(null); }
-  });
+// Google-Geocoder server-seitig (/api/geocode). null -> Fallback (OSM).
+async function googleGeocode(query) {
+  try {
+    const d = await api.get("/api/geocode?q=" + encodeURIComponent(query));
+    const res = (d && d.results) || [];
+    return res.length ? res : null;
+  } catch { return null; }
 }
 
-// Google Places Text-Suche (findet Firmen/Campingplätze *und* Adressen).
+// Google Places Text-Suche server-seitig (/api/places). Firmen/Campingplätze + Adressen.
 async function googlePlacesSearch(query) {
   try {
-    if (!(window.google && google.maps && google.maps.importLibrary)) return [];
-    const { Place } = await google.maps.importLibrary("places");
-    const { places } = await Place.searchByText({
-      textQuery: query,
-      fields: ["displayName", "formattedAddress", "location"],
-      maxResultCount: 6,
-      language: "de",
-    });
-    if (!places || !places.length) return [];
-    return places.map((p) => ({
-      display: (p.displayName ? p.displayName + " · " : "") + (p.formattedAddress || ""),
-      name: p.displayName || String(p.formattedAddress || "").split(",")[0],
-      lat: p.location.lat(),
-      lng: p.location.lng(),
+    const d = await api.send("POST", "/api/places", { textQuery: query, maxResultCount: 6 });
+    return (d.places || []).map((p) => ({
+      display: (p.name ? p.name + " · " : "") + (p.address || ""),
+      name: p.name || String(p.address || "").split(",")[0],
+      lat: p.lat, lng: p.lng,
     }));
   } catch { return []; }
 }
@@ -976,33 +951,16 @@ async function overpassCampsites(points) {
   } catch { return []; }
 }
 
-// Google Places (New) Text-Suche entlang der Route (REST, referrer-geschützter Key)
+// Google Places-Suche entlang der Route – server-seitig (/api/places mit points).
 async function googleAlongRoute(points) {
-  if (!mapsApiKey || points.length < 2) return [];
+  if (points.length < 2) return [];
   try {
-    const { encoding } = await google.maps.importLibrary("geometry");
-    const encoded = encoding.encodePath(
-      points.map((p) => new google.maps.LatLng(p.lat, p.lng)));
-    const r = await fetch("https://places.googleapis.com/v1/places:searchText", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": mapsApiKey,
-        "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location",
-      },
-      body: JSON.stringify({
-        textQuery: "Wohnmobilstellplatz Campingplatz",
-        languageCode: "de",
-        maxResultCount: 20,
-        searchAlongRouteParameters: { polyline: { encodedPolyline: encoded } },
-      }),
+    const d = await api.send("POST", "/api/places", {
+      textQuery: "Wohnmobilstellplatz Campingplatz", points,
     });
-    if (!r.ok) return [];
-    const d = await r.json();
     return (d.places || []).map((p) => ({
-      name: (p.displayName && p.displayName.text) || "Campingplatz",
-      lat: p.location.latitude, lng: p.location.longitude,
-      source: "google", info: p.formattedAddress || "",
+      name: p.name || "Campingplatz", lat: p.lat, lng: p.lng,
+      source: "google", info: p.address || "",
     }));
   } catch { return []; }
 }
