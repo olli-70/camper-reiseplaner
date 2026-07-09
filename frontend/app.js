@@ -32,6 +32,7 @@ let map = null;
 let infoWindow = null;
 let infoOpenId = null;
 let geomLib = null;       // Google "geometry"-Library (Polyline dekodieren)
+let dirService = null;    // Client-DirectionsService (Fallback, solange kein Server-Key)
 let routePolylines = [];  // je Etappe eine eigene Linie (zwischen Übernachtungen)
 let routeSegments = [];   // je Etappe { label, path } – für Etappen-Auswahl der Suche
 let searchMarkers = [];   // temporäre Fund-Pins der Routensuche
@@ -92,11 +93,52 @@ function addLocateControl() {
   map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(btn);
 }
 
-// Routing läuft server-seitig (/api/directions). Client braucht nur die
+// Routing läuft server-seitig (/api/directions). Client braucht die
 // "geometry"-Library, um die vom Server gelieferte Polyline zu dekodieren.
 async function ensureGeometry() {
   if (!geomLib) geomLib = await google.maps.importLibrary("geometry");
   return geomLib;
+}
+
+// Client-DirectionsService – nur als Fallback, solange kein Server-Key gesetzt ist.
+async function ensureDirections() {
+  if (!dirService) {
+    const { DirectionsService } = await google.maps.importLibrary("routes");
+    dirService = new DirectionsService();
+  }
+  return dirService;
+}
+
+// Eine Etappe routen: Backend (Server-Key) bevorzugt, sonst Client-Fallback.
+// Ergebnis normalisiert: { legs:[{distance(m),duration(s)}], path: LatLng[] } | null
+async function fetchSegmentRoute(seg) {
+  const origin = { lat: seg.from.lat, lng: seg.from.lng };
+  const destination = { lat: seg.to.lat, lng: seg.to.lng };
+  // 1) Backend (server-seitiger Key, Ziel-Zustand)
+  try {
+    const r = await api.send("POST", "/api/directions", {
+      origin, destination, waypoints: seg.waypoints.map((w) => ({ lat: w.lat, lng: w.lng })),
+    });
+    if (r && r.ok) {
+      const { encoding } = await ensureGeometry();
+      return { legs: r.legs, path: encoding.decodePath(r.polyline) };
+    }
+  } catch { /* Backend nicht verfügbar -> Fallback */ }
+  // 2) Fallback: client-seitig (funktioniert mit dem Render-Key, solange dieser
+  //    Directions erlaubt) – greift nur, bis der Server-Key aktiv ist.
+  try {
+    const svc = await ensureDirections();
+    const res = await svc.route({
+      origin, destination,
+      waypoints: seg.waypoints.map((w) => ({ location: { lat: w.lat, lng: w.lng }, stopover: true })),
+      travelMode: google.maps.TravelMode.DRIVING,
+    });
+    const route = res.routes[0];
+    return {
+      legs: route.legs.map((l) => ({ distance: l.distance.value, duration: l.duration.value })),
+      path: route.overview_path,
+    };
+  } catch { return null; }
 }
 
 // alle gezeichneten Etappen-Linien entfernen
@@ -414,24 +456,18 @@ async function computeDistances() {
   if (!segments.length) { clearRoutes(); routeSegments = []; renderLegSelector(); return; }
 
   try {
-    const { encoding } = await ensureGeometry();
-    // Eine Directions-Anfrage je Etappe ans Backend (parallel). Fehler -> null.
-    const results = await Promise.all(segments.map((seg) =>
-      api.send("POST", "/api/directions", {
-        origin: { lat: seg.from.lat, lng: seg.from.lng },
-        destination: { lat: seg.to.lat, lng: seg.to.lng },
-        waypoints: seg.waypoints.map((w) => ({ lat: w.lat, lng: w.lng })),
-      }).then((r) => (r && r.ok ? r : null)).catch(() => null)));
+    // Eine Etappe je Route-Anfrage (parallel); Backend bevorzugt, Client-Fallback.
+    const routed = await Promise.all(segments.map((seg) => fetchSegmentRoute(seg)));
 
     clearRoutes();
     routeSegments = [];
     let grandM = 0, grandS = 0, backM = 0, backS = 0, anyFail = false;
 
-    results.forEach((res, si) => {
+    routed.forEach((res, si) => {
       const seg = segments[si];
       if (!res) { anyFail = true; return; }
       const legs = res.legs; // [{distance(m), duration(s)}] je Teilstück
-      const path = encoding.decodePath(res.polyline); // Server-Polyline -> LatLng[]
+      const path = res.path; // LatLng[] (Backend-Polyline dekodiert bzw. overview_path)
       // Etappen-Linie zeichnen (abwechselnde Farbe)
       routePolylines.push(new google.maps.Polyline({
         path, map,
