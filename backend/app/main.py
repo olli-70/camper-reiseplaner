@@ -413,7 +413,7 @@ def _stops_csv(session: Session, trips: List[Trip]) -> str:
     writer.writerow([
         "Reise", "Art", "Name", "Status", "Datum", "Notiz",
         "Breitengrad", "Längengrad", "In Route", "Reihenfolge",
-        "Reserviert von", "Reserviert bis",
+        "An (Ankunft / POI-Zeit)", "Ab (Abfahrt)", "Reserviert",
     ])
     for trip in trips:
         stops = session.exec(
@@ -433,6 +433,7 @@ def _stops_csv(session: Session, trips: List[Trip]) -> str:
                 s.reihenfolge,
                 s.reserviert_von.isoformat(sep=" ", timespec="minutes") if s.reserviert_von else "",
                 s.reserviert_bis.isoformat(sep=" ", timespec="minutes") if s.reserviert_bis else "",
+                "ja" if s.reserviert else "nein",
             ])
     return buf.getvalue()
 
@@ -552,7 +553,13 @@ def create_stop(
 ):
     _owned_trip(session, trip_id, user)
     _validate_status(data.status)
-    stop = Stop.model_validate(data, update={"trip_id": trip_id})
+    # Neue Stopps ans ENDE der Liste einsortieren (max. reihenfolge + 1),
+    # damit ein neuer Übernachtungsplatz unten anhängt statt vorne zu landen.
+    orders = session.exec(
+        select(Stop.reihenfolge).where(Stop.trip_id == trip_id)
+    ).all()
+    next_order = (max(orders) + 1) if orders else 0
+    stop = Stop.model_validate(data, update={"trip_id": trip_id, "reihenfolge": next_order})
     session.add(stop)
     _touch_trip(session, trip_id)
     session.commit()

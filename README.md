@@ -99,10 +99,13 @@ in `.env` änderbar), mit dem Admin-Konto anmelden.
 
 **Übernachtungsplätze** (Liste, per Drag & Drop sortierbar)
 - Name, Status (geplant/besucht/reserviert), Notiz, Datum.
-- **Reservierung**: Häkchen + „reserviert von/bis"; Anzeige `🚐✅` (reserviert) /
-  `🚐❓` (offen) und Zeile `An: TT.MM HH:MM · ab: TT.MM HH:MM`.
+- **An / Ab**: Ankunft und Abfahrt (Datum + Uhrzeit) lassen sich **immer** eintragen —
+  **unabhängig** von der Reservierung. Anzeige-Zeile `An: TT.MM HH:MM · ab: TT.MM HH:MM`.
+- **Reservierung**: separates Häkchen „reserviert / gebucht" (setzt den Status auf
+  reserviert; Marker `🚐✅` reserviert / `🚐❓` offen). Reserviert **ohne** An/Ab geht,
+  An/Ab **ohne** Reservierung ebenso.
   Beim **Anlegen** eines neuen Übernachtungsplatzes (Kartenklick oder Suche) öffnet
-  sich direkt das Formular, sodass die Reservierung **sofort mit erfasst** werden kann.
+  sich direkt das Formular, sodass An/Ab und Reservierung **sofort mit erfasst** werden.
 - **Umwandeln**: über das Popup lässt sich ein Übernachtungsplatz mit einem Klick
   in einen **Punkt (POI)** verwandeln – und umgekehrt (Reservierungsdaten bleiben erhalten).
 - **Route auf der Karte**: die Strecke wird gezeichnet – **je Etappe zwischen zwei
@@ -116,10 +119,13 @@ in `.env` änderbar), mit dem Admin-Konto anmelden.
 
 **POIs** (Points of Interest, ohne Übernachtung)
 - Aufklappmenü „📍 Punkte"; Notiz je POI.
+- **Datum & Uhrzeit** je POI (optional) — wird in Popup und Liste angezeigt.
 - Klick auf einen POI → **Entfernungen zu allen Übernachtungsplätzen** (sortiert).
 - **„in Route"**-Schalter je POI: nimmt den Punkt als **Wegpunkt** in die Route auf
   (erscheint sortierbar in der Liste 🚏, die Linie führt hindurch). Ohne den
-  Schalter bleibt er nur ein Punkt auf der Karte.
+  Schalter bleibt er nur ein Punkt auf der Karte. Hat der POI ein **Datum & Uhrzeit**,
+  wird er beim Aufnehmen **zeitlich passend** zwischen die terminierten Übernachtungen
+  einsortiert (sonst ans Ende).
 - **Umwandeln**: über das POI-Popup wird ein Punkt mit einem Klick in einen
   **Übernachtungsplatz** verwandelt (und umgekehrt).
 

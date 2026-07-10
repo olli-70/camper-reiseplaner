@@ -179,8 +179,11 @@ function stopPopupDOM(s) {
   const el = document.createElement("div");
   el.className = "popup";
   const datum = s.datum ? ` · ${s.datum}` : "";
-  const resInfo = s.reserviert
-    ? `<div class="res-info">🔒 reserviert${s.reserviert_von ? " ab " + fmtDT(s.reserviert_von) : ""}${s.reserviert_bis ? " bis " + fmtDT(s.reserviert_bis) : ""}</div>`
+  const times = (s.reserviert_von || s.reserviert_bis)
+    ? `An: ${fmtDT(s.reserviert_von) || "?"} · Ab: ${fmtDT(s.reserviert_bis) || "?"}`
+    : "";
+  const resInfo = (s.reserviert || times)
+    ? `<div class="res-info">${s.reserviert ? "🔒 reserviert" : ""}${s.reserviert && times ? " · " : ""}${times}</div>`
     : "";
   el.innerHTML = `
     <h4>${escapeHtml(s.name)} <span class="badge ${s.status}">${s.status}</span></h4>
@@ -287,8 +290,9 @@ async function openPoiInfo(poi) {
   el.className = "popup";
   const stops = state.stops;
   const noteHtml = poi.notiz ? `<div class="poi-note">${escapeHtml(poi.notiz)}</div>` : "";
+  const timeHtml = poi.reserviert_von ? `<div class="poi-time">🕒 ${fmtDT(poi.reserviert_von)}</div>` : "";
   el.innerHTML =
-    `<h4>${escapeHtml(poi.name)} <span class="badge poi">Punkt</span></h4>` + noteHtml +
+    `<h4>${escapeHtml(poi.name)} <span class="badge poi">Punkt</span></h4>` + timeHtml + noteHtml +
     `<div class="edit-links"><button data-act="edit">Bearbeiten / Notiz</button><button data-act="convert" title="In einen Übernachtungsplatz umwandeln">→ Übernachtung</button><button data-act="del">Löschen</button></div>` +
     `<div class="poi-dist">${stops.length ? "Entfernungen werden berechnet …" : "Noch keine Übernachtungsplätze."}</div>`;
   el.querySelector('[data-act="edit"]').onclick = () => openForm(poi);
@@ -331,6 +335,7 @@ function renderPoiList() {
     const li = document.createElement("li");
     li.className = "poi-item";
     const note = p.notiz ? `<div class="poi-note">${escapeHtml(p.notiz)}</div>` : "";
+    const time = p.reserviert_von ? `<div class="poi-time">🕒 ${fmtDMHM(p.reserviert_von)}</div>` : "";
     li.innerHTML =
       `<span class="poi-name">${p.in_route ? "🚏" : "📍"} ${escapeHtml(p.name)}</span>` +
       `<span class="poi-actions">` +
@@ -340,7 +345,7 @@ function renderPoiList() {
       `<label class="poi-route" title="Punkt als Wegpunkt in die Route aufnehmen">` +
         `<input type="checkbox" data-act="route"${p.in_route ? " checked" : ""}` +
         `${isLocked() ? " disabled" : ""} /> in Route</label>` +
-      note;
+      time + note;
     li.querySelector(".poi-name").onclick = () => {
       map.panTo({ lat: p.lat, lng: p.lng });
       map.setZoom(Math.max(map.getZoom(), 11));
@@ -350,9 +355,13 @@ function renderPoiList() {
     li.querySelector('[data-act="del"]').onclick = () => deleteStop(p.id);
     li.querySelector('[data-act="route"]').onchange = async (ev) => {
       if (isLocked()) { ev.target.checked = p.in_route; lockAlert(); return; }
+      const on = ev.target.checked;
       try {
-        await api.send("PATCH", `/api/stops/${p.id}`, { in_route: ev.target.checked });
+        await api.send("PATCH", `/api/stops/${p.id}`, { in_route: on });
         await loadStops();
+        // Beim Aufnehmen: POI anhand seines Datums/Uhrzeit zeitlich einsortieren
+        // (relativ zu den bereits terminierten Übernachtungsplätzen).
+        if (on) await placeInRouteByTime(p.id);
       } catch (e) { alert("Konnte Route nicht ändern: " + e.message); }
     };
     ul.appendChild(li);
@@ -380,9 +389,13 @@ function renderList() {
     const badge = isPoi
       ? `<span class="badge poi">Wegpunkt</span>`
       : `<span class="badge ${s.status}">${s.status}</span>`;
-    const resLine = !isPoi && s.reserviert && (s.reserviert_von || s.reserviert_bis)
-      ? `<span class="stop-res">An: ${fmtDMHM(s.reserviert_von) || "?"} · ab: ${fmtDMHM(s.reserviert_bis) || "?"}</span>`
-      : "";
+    let resLine = "";
+    if (isPoi) {
+      resLine = s.reserviert_von ? `<span class="stop-res">🕒 ${fmtDMHM(s.reserviert_von)}</span>` : "";
+    } else if (s.reserviert_von || s.reserviert_bis) {
+      const lock = s.reserviert ? "🔒 " : "";
+      resLine = `<span class="stop-res">${lock}An: ${fmtDMHM(s.reserviert_von) || "?"} · ab: ${fmtDMHM(s.reserviert_bis) || "?"}</span>`;
+    }
     const handle = isLocked() ? "" : `<span class="drag-handle" title="Ziehen zum Sortieren">⠿</span>`;
     li.innerHTML =
       handle +
@@ -420,6 +433,37 @@ async function onReorder() {
     alert("Reihenfolge speichern fehlgeschlagen: " + e.message);
   }
   setTimeout(renderList, 0); // neu aufbauen -> km passend zur neuen Reihenfolge
+}
+
+// Sortier-Zeitpunkt eines Routen-Elements: Übernachtung = An (Ankunft),
+// POI = sein „Datum & Uhrzeit". Beides liegt in reserviert_von.
+const routeTime = (s) => (s && s.reserviert_von ? new Date(s.reserviert_von).getTime() : null);
+
+// Einen frisch aufgenommenen POI zeitlich korrekt in die Route einsortieren:
+// er wandert vor den ersten Halt, dessen Zeit NACH seiner eigenen liegt.
+// Ohne eigenes Datum/Uhrzeit bleibt er am Ende (Standard). Persistiert die
+// neue Reihenfolge übers bestehende /stops/order-Endpoint.
+async function placeInRouteByTime(poiId) {
+  const poi = state.route.find((s) => s.id === poiId);
+  const t = routeTime(poi);
+  if (t == null) return;                              // ohne Zeit: am Ende lassen
+  const others = state.route.filter((s) => s.id !== poiId);
+  let idx = others.length;
+  for (let i = 0; i < others.length; i++) {
+    const et = routeTime(others[i]);
+    if (et != null && et > t) { idx = i; break; }     // vor den ersten späteren Halt
+  }
+  others.splice(idx, 0, poi);
+  const ids = others.map((s) => s.id);
+  // Ist er ohnehin schon an der richtigen Stelle? -> nichts tun
+  if (ids.join(",") === state.route.map((s) => s.id).join(",")) return;
+  state.route = others;
+  try {
+    await api.send("PUT", `/api/trips/${state.tripId}/stops/order`, { order: ids });
+    await loadStops();
+  } catch (e) {
+    alert("Zeitliche Einordnung fehlgeschlagen: " + e.message);
+  }
 }
 
 // Sekunden -> "1 h 49 min" (bzw. "49 min" / "2 h")
@@ -660,15 +704,20 @@ async function loadStops() {
 //   type: text | textarea | select | date | datetime | checkbox
 //   options: nur bei select   default: Vorbelegung bei neuem Stopp
 //   showIf: Schlüssel eines Checkbox-Feldes -> nur sichtbar, wenn dieses an ist
+//   poi: true    -> Feld auch bei POIs zeigen (sonst nur bei Übernachtungen)
+//   poiLabel     -> abweichende Feldbeschriftung, wenn es ein POI ist
+// Hinweis: reserviert_von/-bis = An/Ab-Zeiten und sind UNABHÄNGIG von der
+// „reserviert"-Checkbox editierbar. Bei einem POI ist reserviert_von der
+// „Datum & Uhrzeit"-Zeitpunkt (reserviert_bis/-Flag entfallen dort).
 const STOP_FIELDS = [
   { key: "name",           label: "Name",           type: "text",     required: true, poi: true },
   { key: "status",         label: "Status",         type: "select",
     options: ["geplant", "reserviert", "besucht"], default: "geplant" },
-  { key: "datum",          label: "Datum",          type: "date" },
+  { key: "reserviert_von", label: "An (Ankunft)",   type: "datetime", poi: true, poiLabel: "Datum & Uhrzeit" },
+  { key: "reserviert_bis", label: "Ab (Abfahrt)",   type: "datetime" },
+  { key: "reserviert",     label: "reserviert / gebucht", type: "checkbox" },
+  { key: "datum",          label: "Datum (Tag)",    type: "date" },
   { key: "notiz",          label: "Notiz",          type: "textarea", poi: true },
-  { key: "reserviert",     label: "reserviert",     type: "checkbox" },
-  { key: "reserviert_von", label: "Reserviert von", type: "datetime", showIf: "reserviert" },
-  { key: "reserviert_bis", label: "Reserviert bis", type: "datetime", showIf: "reserviert" },
 ];
 
 const fieldId = (key) => "f_" + key;
@@ -683,28 +732,29 @@ function buildForm() {
     row.dataset.key = f.key;
     if (f.showIf) row.dataset.showif = f.showIf;
     const id = fieldId(f.key);
+    const lbl = `<span class="fld-label">${f.label}</span>`;
     if (f.type === "select") {
       const opts = f.options.map((o) => `<option value="${o}">${o}</option>`).join("");
-      row.innerHTML = `<label>${f.label} <select id="${id}">${opts}</select></label>`;
+      row.innerHTML = `<label>${lbl} <select id="${id}">${opts}</select></label>`;
     } else if (f.type === "textarea") {
-      row.innerHTML = `<label>${f.label} <textarea id="${id}" rows="3"></textarea></label>`;
+      row.innerHTML = `<label>${lbl} <textarea id="${id}" rows="3"></textarea></label>`;
     } else if (f.type === "checkbox") {
-      row.innerHTML = `<label class="check"><input id="${id}" type="checkbox" /> ${f.label}</label>`;
+      row.innerHTML = `<label class="check"><input id="${id}" type="checkbox" /> ${lbl}</label>`;
     } else {
       const t = f.type === "datetime" ? "datetime-local" : f.type; // text | date | datetime-local
-      row.innerHTML = `<label>${f.label} <input id="${id}" type="${t}" /></label>`;
+      row.innerHTML = `<label>${lbl} <input id="${id}" type="${t}" /></label>`;
     }
     box.appendChild(row);
   });
-  // Checkbox-Felder, von denen andere abhängen, verdrahten
+  // Checkbox-Felder, von denen andere per showIf abhängen, verdrahten
   STOP_FIELDS
     .filter((f) => f.type === "checkbox" && STOP_FIELDS.some((x) => x.showIf === f.key))
     .forEach((f) => {
-      document.getElementById(fieldId(f.key)).onchange = () => {
-        applyShowIf(f.key);
-        if (f.key === "reserviert") syncStatusFromReserviert();
-      };
+      document.getElementById(fieldId(f.key)).onchange = () => applyShowIf(f.key);
     });
+  // „reserviert / gebucht" spiegelt den Status (An/Ab bleiben davon unabhängig).
+  const resEl = document.getElementById(fieldId("reserviert"));
+  if (resEl) resEl.onchange = () => syncStatusFromReserviert();
 }
 
 // "reserviert"-Checkbox an -> Status auf "reserviert"; aus -> zurück auf
@@ -744,9 +794,12 @@ function openForm(stop, prefill) {
     if (f.type === "checkbox") el.checked = !!val;
     else if (f.type === "datetime") el.value = toDTLocal(val);
     else el.value = val ?? f.default ?? "";
-    // Bei POIs nur POI-relevante Felder (Name, Notiz) zeigen
+    // Bei POIs nur POI-relevante Felder (Name, Datum & Uhrzeit, Notiz) zeigen
     const row = el.closest(".field-row");
     if (row) row.style.display = (isPoi && !f.poi) ? "none" : "";
+    // kind-abhängige Beschriftung (z.B. „An (Ankunft)" ↔ „Datum & Uhrzeit")
+    const lblEl = row && row.querySelector(".fld-label");
+    if (lblEl) lblEl.textContent = (isPoi && f.poiLabel) ? f.poiLabel : f.label;
   });
   STOP_FIELDS.filter((f) => f.type === "checkbox").forEach((f) => applyShowIf(f.key));
   const c = stop ? { lat: stop.lat, lng: stop.lng } : state.pendingCoords;
@@ -781,10 +834,10 @@ async function saveForm() {
   // abhängige Felder leeren, wenn ihr Steuerfeld aus ist
   STOP_FIELDS.forEach((f) => { if (f.showIf && !payload[f.showIf]) payload[f.key] = null; });
   if (!payload.name) { alert("Bitte einen Namen eingeben."); return; }
-  // "ab" (Reservierungsende) darf nicht vor "an" (Reservierungsbeginn) liegen
-  if (payload.reserviert && payload.reserviert_von && payload.reserviert_bis &&
+  // „Ab" (Abfahrt) darf nicht vor „An" (Ankunft) liegen – unabhängig von der Reservierung
+  if (payload.reserviert_von && payload.reserviert_bis &&
       new Date(payload.reserviert_bis) < new Date(payload.reserviert_von)) {
-    alert('Das "ab"-Datum/-Uhrzeit darf nicht vor dem "an"-Datum/-Uhrzeit liegen.');
+    alert('Das „Ab"-Datum/-Uhrzeit darf nicht vor dem „An"-Datum/-Uhrzeit liegen.');
     return;
   }
   try {

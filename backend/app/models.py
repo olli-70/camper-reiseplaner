@@ -53,9 +53,13 @@ class Stop(SQLModel, table=True):
     notiz: Optional[str] = None
     datum: Optional[date] = None
     reihenfolge: int = 0
-    reserviert: bool = False
-    reserviert_von: Optional[datetime] = None
-    reserviert_bis: Optional[datetime] = None
+    reserviert: bool = False  # eigenständiges Flag „gebucht" – unabhängig von An/Ab
+    # An/Ab-Zeiten, UNABHÄNGIG von `reserviert` befüllbar (werden immer gespeichert).
+    # Bei einem POI trägt reserviert_von den „Datum & Uhrzeit"-Zeitpunkt
+    # (reserviert_bis bleibt leer) und dient als Sortierschlüssel für die
+    # zeitliche Routen-Einordnung.
+    reserviert_von: Optional[datetime] = None  # An (Ankunft) / POI-Zeitpunkt
+    reserviert_bis: Optional[datetime] = None  # Ab (Abfahrt)
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -92,9 +96,13 @@ class StopCreate(SQLModel):
     notiz: Optional[str] = None
     datum: Optional[date] = None
     reihenfolge: int = 0
-    reserviert: bool = False
-    reserviert_von: Optional[datetime] = None
-    reserviert_bis: Optional[datetime] = None
+    reserviert: bool = False  # eigenständiges Flag „gebucht" – unabhängig von An/Ab
+    # An/Ab-Zeiten, UNABHÄNGIG von `reserviert` befüllbar (werden immer gespeichert).
+    # Bei einem POI trägt reserviert_von den „Datum & Uhrzeit"-Zeitpunkt
+    # (reserviert_bis bleibt leer) und dient als Sortierschlüssel für die
+    # zeitliche Routen-Einordnung.
+    reserviert_von: Optional[datetime] = None  # An (Ankunft) / POI-Zeitpunkt
+    reserviert_bis: Optional[datetime] = None  # Ab (Abfahrt)
 
 
 class StopUpdate(SQLModel):
