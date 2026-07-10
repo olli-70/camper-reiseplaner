@@ -6,6 +6,8 @@ installierbare **PWA** (Progressive Web App). Plane mehrere Reisen mit
 auf der Karte, bekomme **Straßen-Entfernungen + Fahrzeiten** und verwalte
 **Reservierungen** – alles auf deiner eigenen Infrastruktur.
 
+
+
 - **Ein einziger Container** (FastAPI + statische PWA), Daten in **SQLite**.
 - **Deploy in wenigen Minuten** per Docker Compose.
 - Nur externe Abhängigkeit: ein **Google-Maps-API-Key** (für Karte + Routing;
