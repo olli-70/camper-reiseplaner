@@ -221,6 +221,15 @@ ins Internet. Beim Betrieb beachten:
 - **Konten:** `ADMIN_USER`/`ADMIN_PASSWORD` seeden das Admin-Konto; weitere Nutzer
   nur über die **`MEMBERS`-Whitelist** mit persönlichem Einmalcode. Es gibt **kein
   offenes Registrieren** – wer nicht in `MEMBERS` (oder Admin) steht, kommt nicht rein.
+- **Nutzer entfernen = Daten löschen:** Einen Nutzer aus `MEMBERS` zu nehmen sperrt
+  ihn sofort aus. Wird zusätzlich der Sync ausgeführt, wird sein Konto **inklusive
+  Reisen** gelöscht (bewusst destruktiv):
+  ```bash
+  docker exec camper-reiseplaner python -m app.main reconcile-members
+  ```
+  Der Sync ist abgesichert: bei leerer/ungültiger `MEMBERS`-Liste wird **nichts**
+  gelöscht, der Admin bleibt immer erhalten. **Passwort-Reset:** neuen Einmalcode in
+  `MEMBERS` setzen und den Container neu starten – die Reisen des Nutzers bleiben.
 - **Passwörter** werden mit **bcrypt** gehasht; ein einfacher **Rate-Limiter**
   (`LOGIN_RATELIMIT`) bremst Brute-Force pro IP.
 - **Render-Key** zusätzlich per **HTTP-Referrer** auf deine Domain beschränken

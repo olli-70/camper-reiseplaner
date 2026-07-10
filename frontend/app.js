@@ -73,7 +73,8 @@ function initMap() {
     mapTypeControl: true,
     mapTypeControlOptions: {
       style: google.maps.MapTypeControlStyle.DROPDOWN_MENU,
-      position: google.maps.ControlPosition.TOP_RIGHT,
+      // TOP_LEFT: das Ziele-Panel liegt rechts -> Umschalter sonst verdeckt.
+      position: google.maps.ControlPosition.TOP_LEFT,
     },
     streetViewControl: false,
     fullscreenControl: false,
@@ -339,6 +340,11 @@ function renderList() {
   const ul = document.getElementById("stopList");
   if (sortable) { sortable.destroy(); sortable = null; }
   ul.innerHTML = "";
+  const stopCount = document.getElementById("stopCount");
+  if (stopCount) {
+    const n = state.route.filter((s) => s.kind !== "poi").length;
+    stopCount.textContent = n ? `(${n})` : "";
+  }
   state.route.forEach((s, i) => {
     const isPoi = s.kind === "poi";
     const li = document.createElement("li");

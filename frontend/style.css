@@ -66,6 +66,12 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   margin-left: auto; flex: 0 0 auto; align-self: center;
   font-size: .72rem; opacity: .65; white-space: nowrap;
 }
+/* Quellcode-Link (GitHub-Symbol) in der Kopfzeile */
+.repo-link {
+  display: inline-flex; align-items: center; align-self: center; flex: 0 0 auto;
+  color: #fff; opacity: .7; text-decoration: none;
+}
+.repo-link:hover { opacity: 1; }
 /* Profil-Button: E-Mail wird bei Bedarf mit … gekürzt (Topbar bleibt schmal) */
 .profile { max-width: 45vw; }
 .profile-email {
@@ -204,9 +210,9 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .popup .poi-dist-title { font-weight: 600; margin: .4rem 0 .2rem; }
 .popup .poi-dist { font-size: .85rem; }
 
-/* POI-Aufklappmenü im Panel */
-.poi-section { margin-top: .6rem; border-top: 1px solid #eee; padding-top: .3rem; }
-.poi-section > summary {
+/* Einklappbare Listen im Panel (Übernachtungen + POIs) */
+.list-section { margin-top: .6rem; border-top: 1px solid #eee; padding-top: .3rem; }
+.list-section > summary {
   cursor: pointer; font-weight: 600; font-size: .9rem; padding: .3rem 0; user-select: none;
 }
 #poiList { list-style: none; margin: .2rem 0 0; padding: 0; }

@@ -88,6 +88,23 @@ Reise ist die Tenant-Grenze, ihr Eigentümer der Nutzer.
   auf `user_id` gescoped, Stopp-Endpunkte prüfen die Zugehörigkeit über die Reise
   (`_owned_trip` → 404 bei Fremdzugriff).
 
+**Nutzerliste synchronisieren (`reconcile_members`):**
+- Änderungen an `MEMBERS` werden beim (Re-)Start eingelesen. **Neue** Codes wirken
+  sofort; einen Nutzer **entfernen** heißt: aus `MEMBERS` nehmen **und** den Sync
+  auslösen – dann wird sein Konto **inklusive Reisen und Stopps gelöscht**.
+- `reconcile_members()` löscht alle DB-Nutzer, die weder Admin noch (mehr) in
+  `MEMBERS` stehen. **Schutz:** `_parse_members_strict()` bricht bei kaputter/leerer
+  E-Mail oder leerem Code ab → dann wird **nichts** gelöscht; der Admin ist immer
+  ausgenommen.
+- Ausgelöst wird der Sync **explizit** (nicht bei jedem Start), per CLI im Container:
+  ```bash
+  docker exec camper-reiseplaner python -m app.main reconcile-members
+  ```
+  Ausgabe = JSON-Report (`deleted` / `kept_allowed`), Exit-Code ≠ 0 bei Fehler.
+- Passwort vergessen? Neuen Einmalcode in `MEMBERS` eintragen und den Container mit
+  frischer `MEMBERS`-Umgebung neu starten – der Nutzer setzt damit ein neues Passwort,
+  **seine Reisen bleiben** (gleiches Konto).
+
 **Google-Web-Dienste server-seitig:** Directions/Places/Geocoding laufen im Backend
 (`/api/directions`, `/api/places`, `/api/geocode`) mit dem `GOOGLE_MAPS_SERVER_KEY`;
 nur der referrer-beschränkte Render-Key erreicht den Browser.
