@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from sqlmodel import Session, select
 
+from . import __version__
 from .db import engine, get_session, init_db
 from .models import (
     STATUS_VALUES,
@@ -113,7 +114,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Camper-Reiseplaner", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Camper-Reiseplaner", version=__version__, lifespan=lifespan)
 app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv("SESSION_SECRET", "dev-insecure-change-me"),
@@ -175,7 +176,7 @@ def config(user: User = Depends(get_current_user)) -> dict:
     # Google-Konsole auf "Maps JavaScript API" + HTTP-Referrer beschränkt sein.
     # Directions/Places/Geocoding laufen server-seitig (siehe unten), damit der
     # exponierte Key nichts Bezahltes auslösen kann.
-    return {"googleMapsApiKey": os.getenv("GOOGLE_MAPS_API_KEY", "")}
+    return {"googleMapsApiKey": os.getenv("GOOGLE_MAPS_API_KEY", ""), "version": __version__}
 
 
 # ---- Authentifizierung (E-Mail + Passwort, Session-Cookie) -------------------
