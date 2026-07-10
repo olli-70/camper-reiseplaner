@@ -1195,7 +1195,7 @@ document.getElementById("panelToggle").onclick = () =>
 // Auth-UI verdrahten
 document.getElementById("authSubmit").onclick = submitAuth;
 document.getElementById("authToggle").onclick = (e) => {
-  e.preventDefault(); setAuthMode(authMode === "login" ? "register" : "login");
+  e.preventDefault(); setAuthMode(authMode === "login" ? "setpw" : "login");
 };
 ["authEmail", "authPassword", "authInvite"].forEach((id) =>
   document.getElementById(id).addEventListener("keydown",
@@ -1228,25 +1228,30 @@ function hideLogin() { document.getElementById("authOverlay").classList.add("hid
 
 function setAuthMode(mode) {
   authMode = mode;
-  const reg = mode === "register";
-  document.getElementById("authInviteRow").classList.toggle("hidden", !reg);
-  document.getElementById("authSubmit").textContent = reg ? "Registrieren" : "Anmelden";
-  document.getElementById("authSubtitle").textContent = reg ? "Neues Konto anlegen" : "Bitte anmelden";
-  document.getElementById("authToggleText").textContent = reg ? "Schon ein Konto?" : "Noch kein Konto?";
-  document.getElementById("authToggle").textContent = reg ? "Anmelden" : "Registrieren";
+  const setpw = mode === "setpw";
+  document.getElementById("authInviteRow").classList.toggle("hidden", !setpw);
+  document.getElementById("authSubmit").textContent = setpw ? "Passwort setzen & anmelden" : "Anmelden";
+  document.getElementById("authSubtitle").textContent =
+    setpw ? "Passwort mit deinem Einmalcode setzen" : "Bitte anmelden";
+  document.getElementById("authToggleText").textContent =
+    setpw ? "Schon ein Passwort?" : "Neu hier oder Passwort vergessen?";
+  document.getElementById("authToggle").textContent = setpw ? "Anmelden" : "Mit Einmalcode anmelden";
+  document.getElementById("authPassword").setAttribute(
+    "autocomplete", setpw ? "new-password" : "current-password");
   document.getElementById("authError").textContent = "";
 }
 
 async function submitAuth() {
   const email = document.getElementById("authEmail").value.trim();
   const password = document.getElementById("authPassword").value;
-  const invite_code = document.getElementById("authInvite").value.trim();
+  const code = document.getElementById("authInvite").value.trim();
   const err = document.getElementById("authError");
   err.textContent = "";
-  const body = authMode === "register" ? { email, password, invite_code } : { email, password };
+  const url = authMode === "setpw" ? "/api/auth/set-password" : "/api/auth/login";
+  const body = authMode === "setpw" ? { email, code, password } : { email, password };
   let r;
   try {
-    r = await fetch(`/api/auth/${authMode}`, {
+    r = await fetch(url, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
   } catch (e) { err.textContent = "Netzwerkfehler: " + e.message; return; }

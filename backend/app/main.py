@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 import re
 import time
@@ -28,6 +30,24 @@ from .models import (
 
 # ---- Auth-Grundlagen ---------------------------------------------------------
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _members() -> dict:
+    """Einladungsliste aus ENV MEMBERS (JSON: [{email, code}, …]) -> {email: code}.
+    Quelle ist Vault-Feld `member`; das Playbook reicht sie als JSON durch."""
+    try:
+        raw = json.loads(os.getenv("MEMBERS", "[]"))
+        return {
+            (m.get("email") or "").strip().lower(): (m.get("code") or "").strip()
+            for m in raw
+            if m.get("email") and m.get("code")
+        }
+    except Exception:
+        return {}
+
+
+def _code_hash(code: str) -> str:
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
 
 def hash_password(pw: str) -> str:
@@ -137,23 +157,32 @@ def config(user: User = Depends(get_current_user)) -> dict:
 
 
 # ---- Authentifizierung (E-Mail + Passwort, Session-Cookie) -------------------
-@app.post("/api/auth/register")
-def register(payload: dict, request: Request, session: Session = Depends(get_session)):
+@app.post("/api/auth/set-password")
+def set_password(payload: dict, request: Request, session: Session = Depends(get_session)):
+    """Passwort per persönlichem Einmalcode setzen (Erst-Anmeldung ODER Reset).
+    Der Code stammt aus der Vault-`member`-Liste (email->code) und ist EINMALIG:
+    nach Benutzung ungültig, bis ein neuer Code hinterlegt wird."""
     _rate_limit(request)
     email = (payload.get("email") or "").strip().lower()
+    code = (payload.get("code") or "").strip()
     pw = payload.get("password") or ""
-    code = payload.get("invite_code") or ""
-    invite = os.getenv("INVITE_CODE", "")
-    if not invite or code != invite:
-        raise HTTPException(403, "Ungültiger oder fehlender Einladungs-Code.")
-    if not EMAIL_RE.match(email):
-        raise HTTPException(422, "Bitte eine gültige E-Mail-Adresse angeben.")
+    members = _members()
+    if not code or email not in members or members[email] != code:
+        raise HTTPException(403, "E-Mail und Einmalcode passen nicht (oder Code abgelaufen).")
     if len(pw) < 8:
         raise HTTPException(422, "Passwort muss mindestens 8 Zeichen haben.")
-    if session.exec(select(User).where(User.email == email)).first():
-        raise HTTPException(409, "Diese E-Mail ist bereits registriert.")
-    user = User(email=email, password_hash=hash_password(pw))
-    session.add(user)
+    ch = _code_hash(code)
+    user = session.exec(select(User).where(User.email == email)).first()
+    if user and user.used_code == ch:
+        raise HTTPException(
+            409, "Dieser Einmalcode wurde bereits benutzt. Für ein neues Passwort "
+                 "bitte einen neuen Code anfordern.")
+    if user:
+        user.password_hash = hash_password(pw)
+        user.used_code = ch
+    else:
+        user = User(email=email, password_hash=hash_password(pw), used_code=ch)
+        session.add(user)
     session.commit()
     session.refresh(user)
     request.session["uid"] = user.id

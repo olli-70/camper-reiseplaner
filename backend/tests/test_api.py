@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 
@@ -5,9 +6,11 @@ import tempfile
 _fd, _path = tempfile.mkstemp(suffix=".db")
 os.close(_fd)
 os.environ["CAMPER_DB"] = _path
-os.environ["INVITE_CODE"] = "testcode"
 os.environ["SESSION_SECRET"] = "testsecret"
 os.environ["COOKIE_SECURE"] = "0"  # TestClient läuft über http
+CODES = {"a@test.de": "code-a", "b@test.de": "code-b", "c@test.de": "code-c"}
+_MEMBERS = [{"email": e, "code": c} for e, c in CODES.items()]
+os.environ["MEMBERS"] = json.dumps(_MEMBERS)
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -18,16 +21,53 @@ init_db()
 
 
 def _client(email):
-    """TestClient mit eigenem Cookie-Jar, als frisch registrierter Nutzer angemeldet."""
+    """TestClient mit eigenem Cookie-Jar, per Einmalcode angemeldet."""
     c = TestClient(app)
-    r = c.post("/api/auth/register",
-               json={"email": email, "password": "password1", "invite_code": "testcode"})
+    r = c.post("/api/auth/set-password",
+               json={"email": email, "code": CODES[email], "password": "password1"})
     assert r.status_code == 200, r.text
     return c
 
 
 # angemeldeter Standard-Client für die meisten Tests
 client = _client("a@test.de")
+
+
+def test_setpw_needs_valid_code():
+    c = TestClient(app)
+    # falscher Code
+    assert c.post("/api/auth/set-password",
+                  json={"email": "b@test.de", "code": "falsch", "password": "password1"}
+                  ).status_code == 403
+    # E-Mail nicht in der member-Liste
+    assert c.post("/api/auth/set-password",
+                  json={"email": "fremd@test.de", "code": "x", "password": "password1"}
+                  ).status_code == 403
+
+
+def test_onetime_code_and_reset():
+    # erstmalig setzen -> ok
+    assert TestClient(app).post("/api/auth/set-password",
+                                json={"email": "c@test.de", "code": "code-c", "password": "password1"}
+                                ).status_code == 200
+    # gleicher Code nochmal -> 409 (verbraucht)
+    assert TestClient(app).post("/api/auth/set-password",
+                                json={"email": "c@test.de", "code": "code-c", "password": "hijack99"}
+                                ).status_code == 409
+    # Login mit erstem Passwort geht
+    assert TestClient(app).post("/api/auth/login",
+                                json={"email": "c@test.de", "password": "password1"}).status_code == 200
+    # Reset: neuer Code wird hinterlegt -> Passwort neu setzbar
+    os.environ["MEMBERS"] = json.dumps([{"email": "c@test.de", "code": "code-c2"}])
+    try:
+        assert TestClient(app).post("/api/auth/set-password",
+                                    json={"email": "c@test.de", "code": "code-c2", "password": "password3"}
+                                    ).status_code == 200
+        # altes Passwort funktioniert nicht mehr
+        assert TestClient(app).post("/api/auth/login",
+                                    json={"email": "c@test.de", "password": "password1"}).status_code == 401
+    finally:
+        os.environ["MEMBERS"] = json.dumps(_MEMBERS)  # Umgebung wiederherstellen
 
 
 def test_health():
@@ -38,13 +78,6 @@ def test_requires_auth():
     anon = TestClient(app)
     assert anon.get("/api/trips").status_code == 401
     assert anon.get("/api/config").status_code == 401
-
-
-def test_register_needs_valid_invite():
-    c = TestClient(app)
-    assert c.post("/api/auth/register",
-                  json={"email": "x@test.de", "password": "password1", "invite_code": "falsch"}
-                  ).status_code == 403
 
 
 def test_login_and_me():

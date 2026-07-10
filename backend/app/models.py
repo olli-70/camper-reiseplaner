@@ -17,6 +17,7 @@ class User(SQLModel, table=True):
     email: str = Field(index=True, unique=True)  # Anmeldung per E-Mail
     password_hash: str
     is_admin: bool = False
+    used_code: Optional[str] = None  # sha256 des bereits verbrauchten Einmalcodes
     created_at: datetime = Field(default_factory=_now)
 
 
