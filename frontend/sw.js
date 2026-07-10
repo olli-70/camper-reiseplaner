@@ -1,6 +1,6 @@
 // Service Worker – Offline-Read-Cache (Ansehen offline, Bearbeiten nur online).
 // Hinweis: Die Google-Maps-Karte selbst braucht Netz (kein Offline-Kartenbild).
-const CACHE = "camper-v42";
+const CACHE = "camper-v43";
 const SHELL = [
   "/",
   "/index.html",
@@ -31,16 +31,26 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(req.url);
 
   if (url.pathname.startsWith("/api/")) {
-    // Netzwerk zuerst, damit Daten frisch sind; offline aus Cache lesen.
+    // Netzwerk zuerst; nur ERFOLGREICHE Antworten cachen (keine 401/Fehler).
     e.respondWith(
       fetch(req)
-        .then((res) => { caches.open(CACHE).then((c) => c.put(req, res.clone())); return res; })
+        .then((res) => {
+          if (res.ok) caches.open(CACHE).then((c) => c.put(req, res.clone()));
+          return res;
+        })
         .catch(() => caches.match(req))
     );
     return;
   }
 
-  // App-Shell: Cache zuerst, sonst Netzwerk. Karten-Requests (Google, cross-origin)
-  // sind nicht im Cache -> laufen direkt ins Netz, werden nicht zwischengespeichert.
-  e.respondWith(caches.match(req).then((hit) => hit || fetch(req)));
+  // App-Shell: Netzwerk zuerst (immer die neueste Version wenn online), Cache nur
+  // als Offline-Fallback. Verhindert, dass ein altes app.js "hängen bleibt".
+  e.respondWith(
+    fetch(req)
+      .then((res) => {
+        if (res.ok) caches.open(CACHE).then((c) => c.put(req, res.clone()));
+        return res;
+      })
+      .catch(() => caches.match(req))
+  );
 });
