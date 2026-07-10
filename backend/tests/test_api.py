@@ -170,6 +170,18 @@ def test_create_stop_with_reservation():
     client.delete(f"/api/trips/{tid}")
 
 
+def test_new_stops_appended_at_end():
+    """Neue Stopps werden ans Ende der Liste einsortiert (reihenfolge = max+1)."""
+    tid = client.post("/api/trips", json={"name": "Anhaengen"}).json()["id"]
+    names = ["Erster", "Zweiter", "Dritter"]
+    for n in names:
+        client.post(f"/api/trips/{tid}/stops", json={"name": n, "lat": 1, "lng": 2})
+    got = client.get(f"/api/trips/{tid}/stops").json()
+    assert [s["name"] for s in got] == names          # Reihenfolge = Anlage-Reihenfolge
+    assert [s["reihenfolge"] for s in got] == [0, 1, 2]
+    client.delete(f"/api/trips/{tid}")
+
+
 def test_reorder_stops():
     tid = client.post("/api/trips", json={"name": "Reorder"}).json()["id"]
     ids = [

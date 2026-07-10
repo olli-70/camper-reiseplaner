@@ -552,7 +552,13 @@ def create_stop(
 ):
     _owned_trip(session, trip_id, user)
     _validate_status(data.status)
-    stop = Stop.model_validate(data, update={"trip_id": trip_id})
+    # Neue Stopps ans ENDE der Liste einsortieren (max. reihenfolge + 1),
+    # damit ein neuer Übernachtungsplatz unten anhängt statt vorne zu landen.
+    orders = session.exec(
+        select(Stop.reihenfolge).where(Stop.trip_id == trip_id)
+    ).all()
+    next_order = (max(orders) + 1) if orders else 0
+    stop = Stop.model_validate(data, update={"trip_id": trip_id, "reihenfolge": next_order})
     session.add(stop)
     _touch_trip(session, trip_id)
     session.commit()
