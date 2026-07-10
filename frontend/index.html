@@ -19,6 +19,7 @@
     <button id="tourMenuBtn" class="tour-name" title="Tour wechseln"><span id="tourNameLabel">–</span> ▾</button>
     <button id="tourEditBtn" title="Tour-Einstellungen (Start/Ziel, Datum)">⚙️</button>
     <button id="newTripBtn" title="Neue Reise anlegen">＋</button>
+    <button id="logoutBtn" title="Abmelden">⎋</button>
     <span id="hint" class="hint"></span>
     <div id="tourMenu" class="hidden"></div>
   </header>
@@ -98,6 +99,29 @@
         <button id="t_cancel" class="ghost">Abbrechen</button>
         <button id="t_save" class="primary">Speichern</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Login / Registrierung (verdeckt die App, bis angemeldet) -->
+  <div id="authOverlay" class="hidden">
+    <div class="auth-card">
+      <h2>🚐 Camper-Reiseplaner</h2>
+      <p id="authSubtitle">Bitte anmelden</p>
+      <label>E-Mail
+        <input id="authEmail" type="email" autocomplete="email" placeholder="name@example.de" />
+      </label>
+      <label>Passwort
+        <input id="authPassword" type="password" autocomplete="current-password" />
+      </label>
+      <label id="authInviteRow" class="hidden">Einladungs-Code
+        <input id="authInvite" type="text" autocomplete="off" />
+      </label>
+      <div id="authError" class="auth-error"></div>
+      <button id="authSubmit" class="primary">Anmelden</button>
+      <p class="auth-toggle">
+        <span id="authToggleText">Noch kein Konto?</span>
+        <a id="authToggle" href="#">Registrieren</a>
+      </p>
     </div>
   </div>
 

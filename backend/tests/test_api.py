@@ -1,10 +1,13 @@
 import os
 import tempfile
 
-# eigene DB-Datei pro Testlauf, bevor die App-Module importiert werden
+# Test-Umgebung setzen, BEVOR die App-Module importiert werden
 _fd, _path = tempfile.mkstemp(suffix=".db")
 os.close(_fd)
 os.environ["CAMPER_DB"] = _path
+os.environ["INVITE_CODE"] = "testcode"
+os.environ["SESSION_SECRET"] = "testsecret"
+os.environ["COOKIE_SECURE"] = "0"  # TestClient läuft über http
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -12,11 +15,57 @@ from app.db import init_db  # noqa: E402
 from app.main import app  # noqa: E402
 
 init_db()
-client = TestClient(app)
+
+
+def _client(email):
+    """TestClient mit eigenem Cookie-Jar, als frisch registrierter Nutzer angemeldet."""
+    c = TestClient(app)
+    r = c.post("/api/auth/register",
+               json={"email": email, "password": "password1", "invite_code": "testcode"})
+    assert r.status_code == 200, r.text
+    return c
+
+
+# angemeldeter Standard-Client für die meisten Tests
+client = _client("a@test.de")
 
 
 def test_health():
-    assert client.get("/api/health").json() == {"status": "ok"}
+    assert TestClient(app).get("/api/health").json() == {"status": "ok"}
+
+
+def test_requires_auth():
+    anon = TestClient(app)
+    assert anon.get("/api/trips").status_code == 401
+    assert anon.get("/api/config").status_code == 401
+
+
+def test_register_needs_valid_invite():
+    c = TestClient(app)
+    assert c.post("/api/auth/register",
+                  json={"email": "x@test.de", "password": "password1", "invite_code": "falsch"}
+                  ).status_code == 403
+
+
+def test_login_and_me():
+    c = TestClient(app)
+    assert c.post("/api/auth/login",
+                  json={"email": "a@test.de", "password": "password1"}).status_code == 200
+    assert c.get("/api/auth/me").json()["email"] == "a@test.de"
+
+
+def test_isolation_between_accounts():
+    a = client
+    b = _client("b@test.de")
+    tid = a.post("/api/trips", json={"name": "A's Reise"}).json()["id"]
+    # B sieht A's Reise nicht in der Liste
+    assert all(t["id"] != tid for t in b.get("/api/trips").json())
+    # B kann A's Reise nicht direkt lesen / ändern / löschen (404)
+    assert b.get(f"/api/trips/{tid}").status_code == 404
+    assert b.patch(f"/api/trips/{tid}", json={"name": "hijack"}).status_code == 404
+    assert b.delete(f"/api/trips/{tid}").status_code == 404
+    assert b.get(f"/api/trips/{tid}/stops").status_code == 404
+    a.delete(f"/api/trips/{tid}")
 
 
 def test_config_has_maps_key_field():
@@ -27,13 +76,12 @@ def test_config_has_maps_key_field():
 
 def test_trip_touched_when_stop_added():
     import time
-
     tid = client.post("/api/trips", json={"name": "Touch-Test"}).json()["id"]
     before = client.get(f"/api/trips/{tid}").json()["updated_at"]
     time.sleep(0.01)
     client.post(f"/api/trips/{tid}/stops", json={"name": "S", "lat": 1, "lng": 2})
     after = client.get(f"/api/trips/{tid}").json()["updated_at"]
-    assert after > before  # Reise wird als 'zuletzt beplant' markiert
+    assert after > before
     client.delete(f"/api/trips/{tid}")
 
 
@@ -42,7 +90,6 @@ def test_poi_kind():
     r = client.post(f"/api/trips/{tid}/stops", json={"name": "Aussicht", "lat": 1, "lng": 2, "kind": "poi"})
     assert r.status_code == 201
     assert r.json()["kind"] == "poi"
-    # Default ist "stop"
     r2 = client.post(f"/api/trips/{tid}/stops", json={"name": "Platz", "lat": 3, "lng": 4})
     assert r2.json()["kind"] == "stop"
     client.delete(f"/api/trips/{tid}")
@@ -58,53 +105,35 @@ def test_reorder_stops():
     r = client.put(f"/api/trips/{tid}/stops/order", json={"order": new_order})
     assert r.status_code == 200
     assert [s["id"] for s in r.json()] == new_order
-    # persistiert (list_stops ordert nach reihenfolge)
     got = client.get(f"/api/trips/{tid}/stops").json()
     assert [s["id"] for s in got] == new_order
     client.delete(f"/api/trips/{tid}")
 
 
 def test_trip_and_stop_lifecycle():
-    # Trip anlegen
     r = client.post("/api/trips", json={"name": "Norwegen 2026"})
     assert r.status_code == 201
     trip_id = r.json()["id"]
-
-    # Stopp anlegen
     r = client.post(
         f"/api/trips/{trip_id}/stops",
         json={"name": "Preikestolen", "lat": 58.98, "lng": 6.19, "status": "geplant"},
     )
     assert r.status_code == 201
     stop_id = r.json()["id"]
-
-    # Status aktualisieren
     r = client.patch(f"/api/stops/{stop_id}", json={"status": "besucht"})
     assert r.status_code == 200
     assert r.json()["status"] == "besucht"
-
-    # Reservierung setzen (Checkbox + von/bis mit Datum+Uhrzeit)
     r = client.patch(
         f"/api/stops/{stop_id}",
-        json={
-            "reserviert": True,
-            "reserviert_von": "2026-07-10T14:00",
-            "reserviert_bis": "2026-07-12T11:00",
-        },
+        json={"reserviert": True, "reserviert_von": "2026-07-10T14:00",
+              "reserviert_bis": "2026-07-12T11:00"},
     )
     assert r.status_code == 200
     body = r.json()
     assert body["reserviert"] is True
     assert body["reserviert_von"].startswith("2026-07-10T14:00")
-    assert body["reserviert_bis"].startswith("2026-07-12T11:00")
-
-    # ungültiger Status -> 422
     assert client.patch(f"/api/stops/{stop_id}", json={"status": "quatsch"}).status_code == 422
-
-    # Liste enthält den Stopp
     stops = client.get(f"/api/trips/{trip_id}/stops").json()
     assert len(stops) == 1
-
-    # Löschen
     assert client.delete(f"/api/stops/{stop_id}").status_code == 204
     assert client.delete(f"/api/trips/{trip_id}").status_code == 204

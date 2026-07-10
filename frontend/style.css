@@ -257,6 +257,32 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
 .hidden { display: none !important; }
 
+/* Login / Registrierung */
+#authOverlay {
+  position: fixed; inset: 0; z-index: 50;
+  background: var(--bg); display: flex; align-items: center; justify-content: center;
+  padding: 1rem; padding-top: max(1rem, env(safe-area-inset-top));
+}
+.auth-card {
+  background: #fff; border-radius: 14px; box-shadow: 0 8px 30px #0005;
+  width: 340px; max-width: 92vw; padding: 1.3rem 1.3rem 1rem;
+}
+.auth-card h2 { margin: 0 0 .1rem; font-size: 1.25rem; }
+#authSubtitle { margin: 0 0 .9rem; color: #666; font-size: .9rem; }
+.auth-card label { display: block; font-size: .85rem; margin: .55rem 0; color: #333; }
+.auth-card input {
+  width: 100%; padding: .55rem; margin-top: .25rem; box-sizing: border-box;
+  border: 1px solid #ccc; border-radius: 8px; font: inherit;
+  background: #fff; color: #111;
+}
+.auth-error { color: #b91c1c; font-size: .82rem; min-height: 1.1em; margin: .3rem 0; }
+#authSubmit {
+  width: 100%; padding: .6rem; border: none; border-radius: 8px; cursor: pointer;
+  background: var(--bg); color: #fff; font: inherit; font-weight: 600; min-height: 44px;
+}
+.auth-toggle { text-align: center; font-size: .85rem; color: #666; margin: .8rem 0 .2rem; }
+.auth-toggle a { color: var(--bg); font-weight: 600; text-decoration: none; margin-left: .3rem; }
+
 /* Popup-Inhalt */
 .popup h4 { margin: 0 0 .3rem; }
 .popup .nav-links { display: flex; gap: .4rem; margin-top: .5rem; }

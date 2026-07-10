@@ -1,15 +1,19 @@
 import os
+import re
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import List
 
+import bcrypt
 import httpx
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 from sqlmodel import Session, select
 
-from .db import get_session, init_db
+from .db import engine, get_session, init_db
 from .models import (
     STATUS_VALUES,
     Stop,
@@ -19,16 +23,94 @@ from .models import (
     Trip,
     TripCreate,
     TripUpdate,
+    User,
 )
+
+# ---- Auth-Grundlagen ---------------------------------------------------------
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def hash_password(pw: str) -> str:
+    # bcrypt begrenzt auf 72 Byte; längere Passwörter werden abgeschnitten.
+    return bcrypt.hashpw(pw.encode("utf-8")[:72], bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(pw: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(pw.encode("utf-8")[:72], hashed.encode("utf-8"))
+    except Exception:
+        return False
+
+
+def _seed_admin() -> None:
+    """Beim Erst-Start das Haushalts-Admin-Konto aus ENV anlegen (falls noch keine
+    Nutzer existieren) und verwaiste Reisen (user_id NULL) diesem Konto zuordnen."""
+    email = os.getenv("ADMIN_USER", "").strip().lower()
+    pw = os.getenv("ADMIN_PASSWORD", "")
+    if not email or not pw:
+        return
+    with Session(engine) as session:
+        admin = session.exec(select(User).where(User.email == email)).first()
+        if not admin:
+            if session.exec(select(User)).first():
+                return  # es gibt schon Nutzer -> keinen Admin nachträglich seeden
+            admin = User(email=email, password_hash=hash_password(pw), is_admin=True)
+            session.add(admin)
+            session.commit()
+            session.refresh(admin)
+        orphans = session.exec(select(Trip).where(Trip.user_id == None)).all()  # noqa: E711
+        for t in orphans:
+            t.user_id = admin.id
+            session.add(t)
+        if orphans:
+            session.commit()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    _seed_admin()
     yield
 
 
 app = FastAPI(title="Camper-Reiseplaner", version="1.0.0", lifespan=lifespan)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("SESSION_SECRET", "dev-insecure-change-me"),
+    same_site="lax",
+    https_only=os.getenv("COOKIE_SECURE", "1") != "0",
+    max_age=60 * 60 * 24 * 30,  # 30 Tage
+)
+
+
+def get_current_user(request: Request, session: Session = Depends(get_session)) -> User:
+    uid = request.session.get("uid")
+    user = session.get(User, uid) if uid else None
+    if not user:
+        request.session.clear()
+        raise HTTPException(401, "Nicht angemeldet")
+    return user
+
+
+def _owned_trip(session: Session, trip_id: int, user: User) -> Trip:
+    trip = session.get(Trip, trip_id)
+    if not trip or trip.user_id != user.id:
+        raise HTTPException(404, "Trip nicht gefunden")
+    return trip
+
+
+# ---- Login-Ratenbegrenzung (einfach, pro IP) --------------------------------
+_login_hits: dict = {}
+
+
+def _rate_limit(request: Request) -> None:
+    ip = request.client.host if request.client else "?"
+    now = time.time()
+    hits = [t for t in _login_hits.get(ip, []) if now - t < 300]  # 5-Min-Fenster
+    if len(hits) >= 10:
+        raise HTTPException(429, "Zu viele Versuche, bitte kurz warten.")
+    hits.append(now)
+    _login_hits[ip] = hits
 
 
 def _validate_status(status: str) -> None:
@@ -46,12 +128,58 @@ def health() -> dict:
 
 
 @app.get("/api/config")
-def config() -> dict:
+def config(user: User = Depends(get_current_user)) -> dict:
     # NUR der Render-Key (Maps JavaScript) geht an den Browser – der sollte in der
     # Google-Konsole auf "Maps JavaScript API" + HTTP-Referrer beschränkt sein.
     # Directions/Places/Geocoding laufen server-seitig (siehe unten), damit der
     # exponierte Key nichts Bezahltes auslösen kann.
     return {"googleMapsApiKey": os.getenv("GOOGLE_MAPS_API_KEY", "")}
+
+
+# ---- Authentifizierung (E-Mail + Passwort, Session-Cookie) -------------------
+@app.post("/api/auth/register")
+def register(payload: dict, request: Request, session: Session = Depends(get_session)):
+    _rate_limit(request)
+    email = (payload.get("email") or "").strip().lower()
+    pw = payload.get("password") or ""
+    code = payload.get("invite_code") or ""
+    invite = os.getenv("INVITE_CODE", "")
+    if not invite or code != invite:
+        raise HTTPException(403, "Ungültiger oder fehlender Einladungs-Code.")
+    if not EMAIL_RE.match(email):
+        raise HTTPException(422, "Bitte eine gültige E-Mail-Adresse angeben.")
+    if len(pw) < 8:
+        raise HTTPException(422, "Passwort muss mindestens 8 Zeichen haben.")
+    if session.exec(select(User).where(User.email == email)).first():
+        raise HTTPException(409, "Diese E-Mail ist bereits registriert.")
+    user = User(email=email, password_hash=hash_password(pw))
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    request.session["uid"] = user.id
+    return {"email": user.email, "is_admin": user.is_admin}
+
+
+@app.post("/api/auth/login")
+def login(payload: dict, request: Request, session: Session = Depends(get_session)):
+    _rate_limit(request)
+    email = (payload.get("email") or "").strip().lower()
+    pw = payload.get("password") or ""
+    user = session.exec(select(User).where(User.email == email)).first()
+    if not user or not verify_password(pw, user.password_hash):
+        raise HTTPException(401, "E-Mail oder Passwort falsch.")
+    request.session["uid"] = user.id
+    return {"email": user.email, "is_admin": user.is_admin}
+
+
+@app.post("/api/auth/logout", status_code=204)
+def logout(request: Request):
+    request.session.clear()
+
+
+@app.get("/api/auth/me")
+def me(user: User = Depends(get_current_user)):
+    return {"email": user.email, "is_admin": user.is_admin}
 
 
 # ---- Google-Web-Dienste server-seitig (Key erreicht den Browser NIE) ---------
@@ -87,7 +215,7 @@ async def _gget(url: str, params: dict) -> dict:
 
 
 @app.post("/api/directions")
-async def directions(payload: dict) -> dict:
+async def directions(payload: dict, user: User = Depends(get_current_user)) -> dict:
     """Etappen-Routing (eine Etappe: origin, destination, waypoints[])."""
     if not _GKEY:
         raise HTTPException(503, "Kein Google-Key konfiguriert")
@@ -115,7 +243,7 @@ async def directions(payload: dict) -> dict:
 
 
 @app.post("/api/places")
-async def places(payload: dict) -> dict:
+async def places(payload: dict, user: User = Depends(get_current_user)) -> dict:
     """Places-Text-Suche; mit `points` (>=2) -> Suche entlang der Route."""
     if not _GKEY:
         raise HTTPException(503, "Kein Google-Key konfiguriert")
@@ -154,7 +282,7 @@ async def places(payload: dict) -> dict:
 
 
 @app.get("/api/geocode")
-async def geocode(q: str) -> dict:
+async def geocode(q: str, user: User = Depends(get_current_user)) -> dict:
     """Adresse -> Koordinaten (für Ortssuche + Tour-Start/Ziel)."""
     if not _GKEY:
         raise HTTPException(503, "Kein Google-Key konfiguriert")
@@ -170,13 +298,19 @@ async def geocode(q: str) -> dict:
 
 # ---- Trips -------------------------------------------------------------------
 @app.get("/api/trips", response_model=List[Trip])
-def list_trips(session: Session = Depends(get_session)):
-    return session.exec(select(Trip).order_by(Trip.start_datum, Trip.id)).all()
+def list_trips(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    return session.exec(
+        select(Trip).where(Trip.user_id == user.id).order_by(Trip.start_datum, Trip.id)
+    ).all()
 
 
 @app.post("/api/trips", response_model=Trip, status_code=201)
-def create_trip(data: TripCreate, session: Session = Depends(get_session)):
-    trip = Trip.model_validate(data)
+def create_trip(
+    data: TripCreate,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    trip = Trip.model_validate(data, update={"user_id": user.id})
     session.add(trip)
     session.commit()
     session.refresh(trip)
@@ -184,20 +318,22 @@ def create_trip(data: TripCreate, session: Session = Depends(get_session)):
 
 
 @app.get("/api/trips/{trip_id}", response_model=Trip)
-def get_trip(trip_id: int, session: Session = Depends(get_session)):
-    trip = session.get(Trip, trip_id)
-    if not trip:
-        raise HTTPException(404, "Trip nicht gefunden")
-    return trip
+def get_trip(
+    trip_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    return _owned_trip(session, trip_id, user)
 
 
 @app.patch("/api/trips/{trip_id}", response_model=Trip)
 def update_trip(
-    trip_id: int, data: TripUpdate, session: Session = Depends(get_session)
+    trip_id: int,
+    data: TripUpdate,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
 ):
-    trip = session.get(Trip, trip_id)
-    if not trip:
-        raise HTTPException(404, "Trip nicht gefunden")
+    trip = _owned_trip(session, trip_id, user)
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(trip, key, value)
     trip.updated_at = datetime.utcnow()
@@ -208,10 +344,12 @@ def update_trip(
 
 
 @app.delete("/api/trips/{trip_id}", status_code=204)
-def delete_trip(trip_id: int, session: Session = Depends(get_session)):
-    trip = session.get(Trip, trip_id)
-    if not trip:
-        raise HTTPException(404, "Trip nicht gefunden")
+def delete_trip(
+    trip_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    trip = _owned_trip(session, trip_id, user)
     for stop in session.exec(select(Stop).where(Stop.trip_id == trip_id)).all():
         session.delete(stop)
     session.delete(trip)
@@ -220,9 +358,12 @@ def delete_trip(trip_id: int, session: Session = Depends(get_session)):
 
 # ---- Stops -------------------------------------------------------------------
 @app.get("/api/trips/{trip_id}/stops", response_model=List[Stop])
-def list_stops(trip_id: int, session: Session = Depends(get_session)):
-    if not session.get(Trip, trip_id):
-        raise HTTPException(404, "Trip nicht gefunden")
+def list_stops(
+    trip_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    _owned_trip(session, trip_id, user)
     return session.exec(
         select(Stop).where(Stop.trip_id == trip_id).order_by(Stop.reihenfolge, Stop.id)
     ).all()
@@ -239,10 +380,12 @@ def _touch_trip(session: Session, trip_id: int) -> None:
 
 @app.post("/api/trips/{trip_id}/stops", response_model=Stop, status_code=201)
 def create_stop(
-    trip_id: int, data: StopCreate, session: Session = Depends(get_session)
+    trip_id: int,
+    data: StopCreate,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
 ):
-    if not session.get(Trip, trip_id):
-        raise HTTPException(404, "Trip nicht gefunden")
+    _owned_trip(session, trip_id, user)
     _validate_status(data.status)
     stop = Stop.model_validate(data, update={"trip_id": trip_id})
     session.add(stop)
@@ -254,10 +397,12 @@ def create_stop(
 
 @app.put("/api/trips/{trip_id}/stops/order", response_model=List[Stop])
 def reorder_stops(
-    trip_id: int, data: StopOrder, session: Session = Depends(get_session)
+    trip_id: int,
+    data: StopOrder,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
 ):
-    if not session.get(Trip, trip_id):
-        raise HTTPException(404, "Trip nicht gefunden")
+    _owned_trip(session, trip_id, user)
     stops = {
         s.id: s
         for s in session.exec(select(Stop).where(Stop.trip_id == trip_id)).all()
@@ -276,11 +421,15 @@ def reorder_stops(
 
 @app.patch("/api/stops/{stop_id}", response_model=Stop)
 def update_stop(
-    stop_id: int, data: StopUpdate, session: Session = Depends(get_session)
+    stop_id: int,
+    data: StopUpdate,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
 ):
     stop = session.get(Stop, stop_id)
     if not stop:
         raise HTTPException(404, "Stopp nicht gefunden")
+    _owned_trip(session, stop.trip_id, user)  # 404, falls fremde Reise
     patch = data.model_dump(exclude_unset=True)
     if "status" in patch and patch["status"] is not None:
         _validate_status(patch["status"])
@@ -295,10 +444,15 @@ def update_stop(
 
 
 @app.delete("/api/stops/{stop_id}", status_code=204)
-def delete_stop(stop_id: int, session: Session = Depends(get_session)):
+def delete_stop(
+    stop_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
     stop = session.get(Stop, stop_id)
     if not stop:
         raise HTTPException(404, "Stopp nicht gefunden")
+    _owned_trip(session, stop.trip_id, user)  # 404, falls fremde Reise
     trip_id = stop.trip_id
     session.delete(stop)
     _touch_trip(session, trip_id)

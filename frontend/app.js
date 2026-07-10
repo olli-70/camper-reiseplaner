@@ -2,17 +2,25 @@
 
 // ---- kleine API-Hilfe --------------------------------------------------------
 const api = {
-  async get(url) { return (await fetch(url)).json(); },
+  async get(url) {
+    const r = await fetch(url);
+    if (r.status === 401) { onUnauthorized(); throw new Error("401"); }
+    return r.json();
+  },
   async send(method, url, body) {
     const r = await fetch(url, {
       method,
       headers: { "Content-Type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
     });
+    if (r.status === 401) { onUnauthorized(); throw new Error(`${method} ${url} -> 401`); }
     if (!r.ok) throw new Error(`${method} ${url} -> ${r.status}`);
     return r.status === 204 ? null : r.json();
   },
 };
+
+// Sitzung abgelaufen -> Login zeigen (Funktion ist per Hoisting verfügbar).
+function onUnauthorized() { showLogin("Sitzung abgelaufen – bitte neu anmelden."); }
 
 const STATUS = ["geplant", "reserviert", "besucht"];
 
@@ -1184,9 +1192,98 @@ document.getElementById("f_save").onclick = saveForm;
 document.getElementById("panelToggle").onclick = () =>
   document.getElementById("panel").classList.toggle("collapsed");
 
+// Auth-UI verdrahten
+document.getElementById("authSubmit").onclick = submitAuth;
+document.getElementById("authToggle").onclick = (e) => {
+  e.preventDefault(); setAuthMode(authMode === "login" ? "register" : "login");
+};
+["authEmail", "authPassword", "authInvite"].forEach((id) =>
+  document.getElementById(id).addEventListener("keydown",
+    (e) => { if (e.key === "Enter") { e.preventDefault(); submitAuth(); } }));
+document.getElementById("logoutBtn").onclick = doLogout;
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// ---- Authentifizierung (Login / Registrierung per E-Mail) -------------------
+let currentUserEmail = null;
+let authMode = "login";
+let appStarted = false;
+
+async function checkAuth() {
+  try {
+    const r = await fetch("/api/auth/me");
+    if (r.ok) { currentUserEmail = (await r.json()).email; return true; }
+  } catch { /* offline etc. */ }
+  return false;
+}
+
+function showLogin(msg) {
+  document.getElementById("authOverlay").classList.remove("hidden");
+  if (msg) document.getElementById("authError").textContent = msg;
+}
+function hideLogin() { document.getElementById("authOverlay").classList.add("hidden"); }
+
+function setAuthMode(mode) {
+  authMode = mode;
+  const reg = mode === "register";
+  document.getElementById("authInviteRow").classList.toggle("hidden", !reg);
+  document.getElementById("authSubmit").textContent = reg ? "Registrieren" : "Anmelden";
+  document.getElementById("authSubtitle").textContent = reg ? "Neues Konto anlegen" : "Bitte anmelden";
+  document.getElementById("authToggleText").textContent = reg ? "Schon ein Konto?" : "Noch kein Konto?";
+  document.getElementById("authToggle").textContent = reg ? "Anmelden" : "Registrieren";
+  document.getElementById("authError").textContent = "";
+}
+
+async function submitAuth() {
+  const email = document.getElementById("authEmail").value.trim();
+  const password = document.getElementById("authPassword").value;
+  const invite_code = document.getElementById("authInvite").value.trim();
+  const err = document.getElementById("authError");
+  err.textContent = "";
+  const body = authMode === "register" ? { email, password, invite_code } : { email, password };
+  let r;
+  try {
+    r = await fetch(`/api/auth/${authMode}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+  } catch (e) { err.textContent = "Netzwerkfehler: " + e.message; return; }
+  if (!r.ok) {
+    let msg = "Fehlgeschlagen.";
+    try { const d = await r.json(); if (d.detail) msg = d.detail; } catch {}
+    err.textContent = msg;
+    return;
+  }
+  currentUserEmail = (await r.json()).email;
+  hideLogin();
+  await startApp();
+}
+
+async function doLogout() {
+  try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
+  location.reload();
+}
+
+function updateUserLabel() {
+  const btn = document.getElementById("logoutBtn");
+  if (btn) btn.title = currentUserEmail ? "Abmelden (" + currentUserEmail + ")" : "Abmelden";
+}
+
+// App erst NACH erfolgreicher Anmeldung starten (Karte/Daten brauchen Auth).
+async function startApp() {
+  if (appStarted) return;
+  appStarted = true;
+  updateUserLabel();
+  try {
+    await loadGoogleMaps();
+    initMap();
+    await loadTrips();
+  } catch (e) {
+    document.getElementById("hint").textContent = "Karte konnte nicht geladen werden: " + e.message;
+    document.getElementById("tripTitle").textContent = "⚠️ Karte nicht verfügbar";
+  }
 }
 
 // ---- Service Worker (Offline-Read-Cache + nahtloses Auto-Update) -------------
@@ -1205,14 +1302,9 @@ if ("serviceWorker" in navigator) {
 
 document.getElementById("hint").textContent = HINT;
 
-// ---- Start: Google Maps laden -> Karte init -> Daten laden -------------------
+// ---- Start: erst Auth prüfen -> dann App starten bzw. Login zeigen ----------
 (async () => {
-  try {
-    await loadGoogleMaps();
-    initMap();
-    await loadTrips();
-  } catch (e) {
-    document.getElementById("hint").textContent = "Karte konnte nicht geladen werden: " + e.message;
-    document.getElementById("tripTitle").textContent = "⚠️ Karte nicht verfügbar";
-  }
+  setAuthMode("login");
+  if (await checkAuth()) await startApp();
+  else showLogin();
 })();

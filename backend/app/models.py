@@ -12,8 +12,17 @@ def _now() -> datetime:
 
 
 # ---- Tabellen ----------------------------------------------------------------
+class User(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    email: str = Field(index=True, unique=True)  # Anmeldung per E-Mail
+    password_hash: str
+    is_admin: bool = False
+    created_at: datetime = Field(default_factory=_now)
+
+
 class Trip(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)  # Eigentümer
     name: str
     beschreibung: Optional[str] = None
     start_datum: Optional[date] = None   # Abfahrt
