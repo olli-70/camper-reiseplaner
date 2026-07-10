@@ -1,4 +1,6 @@
+import csv
 import hashlib
+import io
 import json
 import os
 import re
@@ -11,6 +13,7 @@ from typing import List
 import bcrypt
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from sqlmodel import Session, select
@@ -356,6 +359,72 @@ def list_trips(user: User = Depends(get_current_user), session: Session = Depend
     return session.exec(
         select(Trip).where(Trip.user_id == user.id).order_by(Trip.start_datum, Trip.id)
     ).all()
+
+
+def _stops_csv(session: Session, trips: List[Trip]) -> str:
+    """CSV (Semikolon + UTF-8-BOM, Excel/Numbers-tauglich) der Übernachtungsplätze
+    UND POIs der übergebenen Reisen."""
+    art = {"stop": "Übernachtung", "poi": "POI"}
+    buf = io.StringIO()
+    buf.write("﻿")  # UTF-8-BOM
+    writer = csv.writer(buf, delimiter=";")
+    writer.writerow([
+        "Reise", "Art", "Name", "Status", "Datum", "Notiz",
+        "Breitengrad", "Längengrad", "In Route", "Reihenfolge",
+        "Reserviert von", "Reserviert bis",
+    ])
+    for trip in trips:
+        stops = session.exec(
+            select(Stop).where(Stop.trip_id == trip.id).order_by(Stop.reihenfolge, Stop.id)
+        ).all()
+        for s in stops:
+            writer.writerow([
+                trip.name,
+                art.get(s.kind, s.kind),
+                s.name,
+                s.status,
+                s.datum.isoformat() if s.datum else "",
+                s.notiz or "",
+                s.lat,
+                s.lng,
+                "ja" if s.in_route else "nein",
+                s.reihenfolge,
+                s.reserviert_von.isoformat(sep=" ", timespec="minutes") if s.reserviert_von else "",
+                s.reserviert_bis.isoformat(sep=" ", timespec="minutes") if s.reserviert_bis else "",
+            ])
+    return buf.getvalue()
+
+
+def _csv_download(content: str, filename: str) -> Response:
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _csv_slug(name: str) -> str:
+    return (re.sub(r"[^a-zA-Z0-9]+", "-", name).strip("-").lower() or "reise")[:60]
+
+
+@app.get("/api/export.csv")
+def export_csv(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    """Alle eigenen Reisen als CSV (user-scoped)."""
+    trips = session.exec(
+        select(Trip).where(Trip.user_id == user.id).order_by(Trip.start_datum, Trip.id)
+    ).all()
+    return _csv_download(_stops_csv(session, trips), "camper-reisen.csv")
+
+
+@app.get("/api/trips/{trip_id}/export.csv")
+def export_trip_csv(
+    trip_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Eine einzelne eigene Reise als CSV (Fremdzugriff -> 404)."""
+    trip = _owned_trip(session, trip_id, user)
+    return _csv_download(_stops_csv(session, [trip]), f"camper-{_csv_slug(trip.name)}.csv")
 
 
 @app.post("/api/trips", response_model=Trip, status_code=201)

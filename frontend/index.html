@@ -25,6 +25,7 @@
     <div id="tourMenu" class="hidden"></div>
     <div id="profileMenu" class="hidden">
       <div id="profileMenuEmail" class="menu-head"></div>
+      <button id="exportBtn" class="menu-item">⬇ Reisen als CSV</button>
       <button id="logoutBtn" class="menu-item">⎋ Abmelden</button>
     </div>
   </header>
@@ -100,6 +101,7 @@
       <label>Rückkehr <input id="t_rueckkehr" type="date" /></label>
       <label class="check"><input id="t_gesperrt" type="checkbox" /> abgesperrt (schützt vor versehentlichem Ändern)</label>
       <div id="t_status" class="coords"></div>
+      <button type="button" id="t_export" class="ghost">⬇ Diese Reise als CSV</button>
       <div class="form-actions">
         <button id="t_cancel" class="ghost">Abbrechen</button>
         <button id="t_save" class="primary">Speichern</button>
