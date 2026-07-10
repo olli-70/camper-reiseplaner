@@ -8,6 +8,7 @@ os.close(_fd)
 os.environ["CAMPER_DB"] = _path
 os.environ["SESSION_SECRET"] = "testsecret"
 os.environ["COOKIE_SECURE"] = "0"  # TestClient läuft über http
+os.environ["LOGIN_RATELIMIT"] = "1000"  # im Test nicht limitieren
 CODES = {"a@test.de": "code-a", "b@test.de": "code-b", "c@test.de": "code-c"}
 _MEMBERS = [{"email": e, "code": c} for e, c in CODES.items()]
 os.environ["MEMBERS"] = json.dumps(_MEMBERS)
@@ -85,6 +86,13 @@ def test_login_and_me():
     assert c.post("/api/auth/login",
                   json={"email": "a@test.de", "password": "password1"}).status_code == 200
     assert c.get("/api/auth/me").json()["email"] == "a@test.de"
+
+
+def test_login_only_listed_emails():
+    # E-Mail nicht in der member-Liste -> 403, egal welches Passwort
+    assert TestClient(app).post("/api/auth/login",
+                                json={"email": "fremd@test.de", "password": "whatever8"}
+                                ).status_code == 403
 
 
 def test_isolation_between_accounts():

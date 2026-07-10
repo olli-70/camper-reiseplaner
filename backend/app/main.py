@@ -50,6 +50,16 @@ def _code_hash(code: str) -> str:
     return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
 
+def _admin_email() -> str:
+    return os.getenv("ADMIN_USER", "").strip().lower()
+
+
+def _allowed(email: str) -> bool:
+    """Nur E-Mails aus der Vault-`member`-Liste ODER die Admin-E-Mail dürfen rein."""
+    email = (email or "").strip().lower()
+    return bool(email) and (email == _admin_email() or email in _members())
+
+
 def hash_password(pw: str) -> str:
     # bcrypt begrenzt auf 72 Byte; längere Passwörter werden abgeschnitten.
     return bcrypt.hashpw(pw.encode("utf-8")[:72], bcrypt.gensalt()).decode("utf-8")
@@ -63,21 +73,31 @@ def verify_password(pw: str, hashed: str) -> bool:
 
 
 def _seed_admin() -> None:
-    """Beim Erst-Start das Haushalts-Admin-Konto aus ENV anlegen (falls noch keine
-    Nutzer existieren) und verwaiste Reisen (user_id NULL) diesem Konto zuordnen."""
-    email = os.getenv("ADMIN_USER", "").strip().lower()
+    """Admin-Konto aus ENV pflegen: Passwort = Vault (source of truth); wenn die
+    Admin-E-Mail sich geändert hat, das bestehende Admin-Konto UMBENENNEN (Reisen
+    bleiben erhalten). Verwaiste Reisen (user_id NULL) dem Admin zuordnen."""
+    email = _admin_email()
     pw = os.getenv("ADMIN_PASSWORD", "")
     if not email or not pw:
         return
     with Session(engine) as session:
         admin = session.exec(select(User).where(User.email == email)).first()
         if not admin:
-            if session.exec(select(User)).first():
-                return  # es gibt schon Nutzer -> keinen Admin nachträglich seeden
-            admin = User(email=email, password_hash=hash_password(pw), is_admin=True)
-            session.add(admin)
-            session.commit()
-            session.refresh(admin)
+            # evtl. existiert der Admin noch unter der alten E-Mail -> umbenennen
+            admin = session.exec(
+                select(User).where(User.is_admin == True)).first()  # noqa: E712
+            if admin:
+                admin.email = email
+            elif session.exec(select(User)).first():
+                return  # Nicht-Admin-Nutzer existieren -> keinen Admin anlegen
+            else:
+                admin = User(email=email, password_hash="", is_admin=True)
+                session.add(admin)
+        admin.is_admin = True
+        admin.password_hash = hash_password(pw)  # Admin-Passwort folgt Vault
+        session.add(admin)
+        session.commit()
+        session.refresh(admin)
         orphans = session.exec(select(Trip).where(Trip.user_id == None)).all()  # noqa: E711
         for t in orphans:
             t.user_id = admin.id
@@ -106,7 +126,8 @@ app.add_middleware(
 def get_current_user(request: Request, session: Session = Depends(get_session)) -> User:
     uid = request.session.get("uid")
     user = session.get(User, uid) if uid else None
-    if not user:
+    # Zugang endet sofort, wenn die E-Mail nicht (mehr) freigeschaltet ist.
+    if not user or not _allowed(user.email):
         request.session.clear()
         raise HTTPException(401, "Nicht angemeldet")
     return user
@@ -121,13 +142,14 @@ def _owned_trip(session: Session, trip_id: int, user: User) -> Trip:
 
 # ---- Login-Ratenbegrenzung (einfach, pro IP) --------------------------------
 _login_hits: dict = {}
+_RL_MAX = int(os.getenv("LOGIN_RATELIMIT", "20"))  # Versuche pro 5-Min-Fenster/IP
 
 
 def _rate_limit(request: Request) -> None:
     ip = request.client.host if request.client else "?"
     now = time.time()
     hits = [t for t in _login_hits.get(ip, []) if now - t < 300]  # 5-Min-Fenster
-    if len(hits) >= 10:
+    if len(hits) >= _RL_MAX:
         raise HTTPException(429, "Zu viele Versuche, bitte kurz warten.")
     hits.append(now)
     _login_hits[ip] = hits
@@ -194,6 +216,8 @@ def login(payload: dict, request: Request, session: Session = Depends(get_sessio
     _rate_limit(request)
     email = (payload.get("email") or "").strip().lower()
     pw = payload.get("password") or ""
+    if not _allowed(email):
+        raise HTTPException(403, "Diese E-Mail ist nicht freigeschaltet.")
     user = session.exec(select(User).where(User.email == email)).first()
     if not user or not verify_password(pw, user.password_hash):
         raise HTTPException(401, "E-Mail oder Passwort falsch.")
