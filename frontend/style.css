@@ -227,6 +227,8 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   padding: .1rem .35rem; cursor: pointer; font-size: .85rem;
 }
 .poi-note { flex-basis: 100%; font-size: .8rem; color: #555; padding-left: 1.2rem; white-space: pre-wrap; }
+.poi-time { flex-basis: 100%; font-size: .78rem; color: var(--reserviert); padding-left: 1.2rem; }
+.popup .poi-time { margin-top: .3rem; font-size: .8rem; color: var(--reserviert); }
 /* "in Route"-Schalter je POI */
 .poi-route { flex-basis: 100%; display: flex; align-items: center; gap: .35rem;
   font-size: .78rem; color: var(--bg); padding-left: 1.2rem; cursor: pointer; }

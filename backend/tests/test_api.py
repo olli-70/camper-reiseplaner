@@ -170,6 +170,48 @@ def test_create_stop_with_reservation():
     client.delete(f"/api/trips/{tid}")
 
 
+def test_times_saved_without_reservation():
+    """An/Ab-Zeiten müssen OHNE gesetztes reserviert-Flag gespeichert werden
+    (Regressionsschutz: früher wurden sie beim Speichern genullt)."""
+    tid = client.post("/api/trips", json={"name": "Zeiten"}).json()["id"]
+    # Neuanlage: Zeiten ohne reserviert
+    r = client.post(
+        f"/api/trips/{tid}/stops",
+        json={"name": "Platz", "lat": 1, "lng": 2, "kind": "stop", "reserviert": False,
+              "reserviert_von": "2026-09-01T15:30", "reserviert_bis": "2026-09-02T10:00"},
+    )
+    assert r.status_code == 201
+    body = r.json()
+    sid = body["id"]
+    assert body["reserviert"] is False
+    assert body["reserviert_von"].startswith("2026-09-01T15:30")
+    assert body["reserviert_bis"].startswith("2026-09-02T10:00")
+    # Änderung: Zeiten per PATCH aktualisieren, weiterhin ohne reserviert
+    r2 = client.patch(f"/api/stops/{sid}",
+                      json={"reserviert_von": "2026-09-01T16:00"})
+    assert r2.status_code == 200
+    assert r2.json()["reserviert_von"].startswith("2026-09-01T16:00")
+    # nach erneutem Laden noch da?
+    got = client.get(f"/api/trips/{tid}/stops").json()[0]
+    assert got["reserviert_von"].startswith("2026-09-01T16:00")
+    assert got["reserviert_bis"].startswith("2026-09-02T10:00")
+    client.delete(f"/api/trips/{tid}")
+
+
+def test_poi_datetime():
+    """Ein POI kann einen Zeitpunkt (reserviert_von = Datum & Uhrzeit) tragen."""
+    tid = client.post("/api/trips", json={"name": "POI-Zeit"}).json()["id"]
+    r = client.post(
+        f"/api/trips/{tid}/stops",
+        json={"name": "Aussicht", "lat": 1, "lng": 2, "kind": "poi",
+              "reserviert_von": "2026-09-01T12:00"},
+    )
+    assert r.status_code == 201
+    assert r.json()["kind"] == "poi"
+    assert r.json()["reserviert_von"].startswith("2026-09-01T12:00")
+    client.delete(f"/api/trips/{tid}")
+
+
 def test_new_stops_appended_at_end():
     """Neue Stopps werden ans Ende der Liste einsortiert (reihenfolge = max+1)."""
     tid = client.post("/api/trips", json={"name": "Anhaengen"}).json()["id"]

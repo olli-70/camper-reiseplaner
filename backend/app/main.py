@@ -413,7 +413,7 @@ def _stops_csv(session: Session, trips: List[Trip]) -> str:
     writer.writerow([
         "Reise", "Art", "Name", "Status", "Datum", "Notiz",
         "Breitengrad", "Längengrad", "In Route", "Reihenfolge",
-        "Reserviert von", "Reserviert bis",
+        "An (Ankunft / POI-Zeit)", "Ab (Abfahrt)", "Reserviert",
     ])
     for trip in trips:
         stops = session.exec(
@@ -433,6 +433,7 @@ def _stops_csv(session: Session, trips: List[Trip]) -> str:
                 s.reihenfolge,
                 s.reserviert_von.isoformat(sep=" ", timespec="minutes") if s.reserviert_von else "",
                 s.reserviert_bis.isoformat(sep=" ", timespec="minutes") if s.reserviert_bis else "",
+                "ja" if s.reserviert else "nein",
             ])
     return buf.getvalue()
 
