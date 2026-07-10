@@ -64,33 +64,30 @@ kleine Stellen** nötig:
 > Soll ein neues Feld dort erscheinen, wird es gezielt ergänzt – das ist Anzeige,
 > keine Dateneingabe.
 
-## Mandantenfähigkeit (geplant – NICHT umgesetzt)
+## Login & Mandantenfähigkeit (umgesetzt)
 
-Aktuell ist die App bewusst **Single-Tenant**: kein Login, Zugriffskontrolle
-allein über Tailscale. Die Struktur ist aber schon mandantentauglich angelegt,
-damit ein späterer Umbau **additiv** möglich ist – hier der Plan.
+Die App hat einen **eingebauten Login** und trennt die Daten je Konto – die
+Reise ist die Tenant-Grenze, ihr Eigentümer der Nutzer.
 
-**Grundidee:** Ein *Mandant* (Haushalt/Nutzer) besitzt Reisen; Stopps hängen an
-Reisen und erben die Zugehörigkeit. Die Reise ist also die Tenant-Grenze – die
-gibt es heute schon, deshalb ist kein Umbau der Kernstruktur nötig.
+**Authentifizierung:**
+- `User` (E-Mail unique, `password_hash` per **bcrypt**, `is_admin`). Anmeldung
+  über `/api/auth/login`; Session in einem **signierten HttpOnly-Cookie**
+  (Starlette `SessionMiddleware`, `SESSION_SECRET`, standardmäßig `Secure`).
+- **Kein offenes Registrieren:** Nur E-Mails aus der `MEMBERS`-Whitelist (plus
+  `ADMIN_USER`) dürfen rein (`_allowed()`), geprüft bei **jeder** Anfrage – ein
+  Entzug wirkt sofort. Neue Nutzer setzen ihr Passwort einmalig per persönlichem
+  **Einmalcode** (`/api/auth/set-password`, Code nach Gebrauch verbraucht).
+- Der **Admin** wird beim Start aus `ADMIN_USER`/`ADMIN_PASSWORD` geseedet
+  (`_seed_admin`); ändert sich die Admin-E-Mail, wird das bestehende Konto
+  umbenannt (Reisen bleiben). Ein einfacher IP-**Rate-Limiter** bremst Brute-Force.
 
-**Wenn es so weit ist (Skizze, additiv):**
+**Daten-Isolation:**
+- `Trip.user_id` (FK, indiziert; die Auto-Migration ergänzt die Spalte, herrenlose
+  Bestandsreisen gehen per Backfill an den Admin).
+- `get_current_user()` liefert den angemeldeten Nutzer; alle Trip-Endpunkte sind
+  auf `user_id` gescoped, Stopp-Endpunkte prüfen die Zugehörigkeit über die Reise
+  (`_owned_trip` → 404 bei Fremdzugriff).
 
-1. **Identität bestimmen** – eine FastAPI-Dependency `get_current_mandant()`.
-   Heute gäbe es keine Quelle; später z. B. aus einem vom Reverse-Proxy
-   gesetzten Auth-Header (Pocket-ID/OIDC-`sub`) oder aus der Tailscale-Identität.
-   Bis dahin könnte sie einen festen Wert `"default"` liefern.
-2. **Spalte ergänzen** – `mandant_id` an `Trip` (erst NULL-fähig → Bestand auf
-   `"default"` backfillen → verpflichtend). Die Auto-Migration legt die Spalte an.
-3. **Abfragen scopen** – in `main.py` alle Trip-Endpunkte per
-   `WHERE mandant_id = :aktueller_mandant` filtern; Stopp-Endpunkte prüfen die
-   Zugehörigkeit über die Reise. Das ist rein additiv (ein `WHERE` mehr).
-4. **Frontend** – i. d. R. keine Änderung; nur falls ein Nutzer mehrere
-   Mandanten hat, käme ein Mandanten-Umschalter dazu.
-
-**Warum aufgeschoben:** Es gibt (noch) keinen zweiten Haushalt, und Tailscale
-regelt den Zugang. YAGNI – erst bauen, wenn ein echter zweiter Mandant existiert.
-
-**Was heute schon beachtet ist:** Die API ist bereits reise-zentriert
-(`/api/trips/{id}/stops`), Daten hängen unter Reisen. Dadurch bleibt der
-Tenant-Filter später ein additiver Zusatz und kein Umbau.
+**Google-Web-Dienste server-seitig:** Directions/Places/Geocoding laufen im Backend
+(`/api/directions`, `/api/places`, `/api/geocode`) mit dem `GOOGLE_MAPS_SERVER_KEY`;
+nur der referrer-beschränkte Render-Key erreicht den Browser.

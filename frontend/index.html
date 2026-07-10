@@ -19,9 +19,14 @@
     <button id="tourMenuBtn" class="tour-name" title="Tour wechseln"><span id="tourNameLabel">–</span> ▾</button>
     <button id="tourEditBtn" title="Tour-Einstellungen (Start/Ziel, Datum)">⚙️</button>
     <button id="newTripBtn" title="Neue Reise anlegen">＋</button>
-    <button id="logoutBtn" title="Abmelden">⎋</button>
+    <button id="profileBtn" class="profile" title="Profil">👤 <span id="profileEmail" class="profile-email">–</span> ▾</button>
+    <span id="appVersion" class="version" title="App-Version"></span>
     <span id="hint" class="hint"></span>
     <div id="tourMenu" class="hidden"></div>
+    <div id="profileMenu" class="hidden">
+      <div id="profileMenuEmail" class="menu-head"></div>
+      <button id="logoutBtn" class="menu-item">⎋ Abmelden</button>
+    </div>
   </header>
 
   <div id="map"></div>

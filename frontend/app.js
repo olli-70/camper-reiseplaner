@@ -51,6 +51,8 @@ const SEGMENT_COLORS = ["#0f766e", "#06b6d4"];
 // auf die eigene Domain beschränkt -> in der Auslieferung ohnehin sichtbar).
 async function loadGoogleMaps() {
   const cfg = await api.get("/api/config");
+  const vEl = document.getElementById("appVersion");
+  if (vEl) vEl.textContent = cfg.version ? "v" + cfg.version : "";
   if (!cfg.googleMapsApiKey) throw new Error("Kein Google-Maps-Key konfiguriert");
   await new Promise((resolve, reject) => {
     window.__gmapsReady = resolve;
@@ -1172,6 +1174,17 @@ document.addEventListener("click", (e) => {
     menu.classList.add("hidden");
   }
 });
+document.getElementById("profileBtn").onclick = (e) => {
+  e.stopPropagation();
+  document.getElementById("profileMenu").classList.toggle("hidden");
+};
+document.addEventListener("click", (e) => {
+  const menu = document.getElementById("profileMenu");
+  const btn = document.getElementById("profileBtn");
+  if (!menu.classList.contains("hidden") && !menu.contains(e.target) && !btn.contains(e.target)) {
+    menu.classList.add("hidden");
+  }
+});
 document.getElementById("tourEditBtn").onclick = openTourForm;
 document.getElementById("t_cancel").onclick = closeTourForm;
 document.getElementById("t_save").onclick = saveTourForm;
@@ -1272,8 +1285,13 @@ async function doLogout() {
 }
 
 function updateUserLabel() {
-  const btn = document.getElementById("logoutBtn");
-  if (btn) btn.title = currentUserEmail ? "Abmelden (" + currentUserEmail + ")" : "Abmelden";
+  const label = currentUserEmail || "–";
+  const emailEl = document.getElementById("profileEmail");
+  if (emailEl) emailEl.textContent = label;
+  const btn = document.getElementById("profileBtn");
+  if (btn) btn.title = currentUserEmail ? "Angemeldet als " + currentUserEmail : "Profil";
+  const head = document.getElementById("profileMenuEmail");
+  if (head) head.textContent = label;
 }
 
 // App erst NACH erfolgreicher Anmeldung starten (Karte/Daten brauchen Auth).

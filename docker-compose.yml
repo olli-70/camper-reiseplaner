@@ -7,12 +7,23 @@ services:
     container_name: camper-reiseplaner
     restart: unless-stopped
     environment:
-      # Google-Maps-API-Key – aus der .env-Datei (siehe .env.example).
-      # Ohne Key lädt die Karte nicht.
+      # Alle Werte kommen aus der .env-Datei (siehe .env.example).
+      # Google Maps: Render-Key (Browser) + optionaler Server-Key (Directions/
+      # Places/Geocoding laufen server-seitig, erreichen den Browser nie).
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      GOOGLE_MAPS_SERVER_KEY: ${GOOGLE_MAPS_SERVER_KEY:-}
+      GOOGLE_KEY_REFERER: ${GOOGLE_KEY_REFERER:-}
+      # Login/Konten: die App hat einen eingebauten Multi-User-Login.
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      ADMIN_USER: ${ADMIN_USER:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      MEMBERS: ${MEMBERS:-[]}
+      COOKIE_SECURE: ${COOKIE_SECURE:-1}
+      LOGIN_RATELIMIT: ${LOGIN_RATELIMIT:-20}
     ports:
       # host:container – Standard-Port des Containers ist 8000.
-      # Tipp: hinter einen Reverse-Proxy/VPN hängen, es gibt KEIN Login.
+      # Tipp: hinter einen Reverse-Proxy mit HTTPS betreiben (Login-Cookie ist
+      # standardmäßig Secure/HTTPS-only, siehe COOKIE_SECURE).
       - "${CAMPER_PORT:-8082}:8000"
     volumes:
       - camper-data:/data
