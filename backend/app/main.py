@@ -110,6 +110,48 @@ def _seed_admin() -> None:
             session.commit()
 
 
+def _parse_members_strict() -> dict:
+    """Wie _members(), aber wirft bei ungültigem MEMBERS-JSON, statt still eine leere
+    Liste zu liefern. Für die DESTRUKTIVE Reconciliation zwingend: bei kaputter Liste
+    darf NICHT gelöscht werden (sonst Datenverlust). Ungültige Einträge (leere E-Mail
+    oder leerer Code) führen zum Abbruch – die Liste gilt dann als fehlerhaft."""
+    raw = json.loads(os.getenv("MEMBERS", "[]"))
+    if not isinstance(raw, list):
+        raise ValueError("MEMBERS ist keine JSON-Liste")
+    result: dict = {}
+    for m in raw:
+        email = (m.get("email") or "").strip().lower()
+        code = (m.get("code") or "").strip()
+        if not email or not code:
+            raise ValueError("MEMBERS enthält einen Eintrag mit leerer E-Mail oder leerem Code")
+        result[email] = code
+    return result
+
+
+def reconcile_members() -> dict:
+    """Bringt die DB-Nutzer mit der MEMBERS-Whitelist in Deckung: Nutzer, die weder
+    Admin noch (mehr) in der Liste stehen, werden mitsamt ihren Reisen und Stopps
+    GELÖSCHT. Passwörter/Reisen der weiterhin gelisteten Nutzer bleiben unberührt.
+    Wirft bei kaputter/ungültiger MEMBERS-Liste (löscht dann NICHTS)."""
+    allowed = set(_parse_members_strict().keys())
+    admin = _admin_email()
+    if admin:
+        allowed.add(admin)
+    deleted: list = []
+    with Session(engine) as session:
+        for user in session.exec(select(User)).all():
+            if user.is_admin or user.email in allowed:
+                continue
+            for trip in session.exec(select(Trip).where(Trip.user_id == user.id)).all():
+                for stop in session.exec(select(Stop).where(Stop.trip_id == trip.id)).all():
+                    session.delete(stop)
+                session.delete(trip)
+            session.delete(user)
+            deleted.append(user.email)
+        session.commit()
+    return {"deleted": sorted(deleted), "kept_allowed": sorted(allowed)}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -586,3 +628,21 @@ def delete_stop(
 _frontend = Path(__file__).resolve().parent.parent / "frontend"
 if _frontend.is_dir():
     app.mount("/", StaticFiles(directory=str(_frontend), html=True), name="frontend")
+
+
+# ---- CLI: Nutzerliste synchronisieren ----------------------------------------
+# Vom user-sync-Playbook per `docker exec ... python -m app.main reconcile-members`
+# aufgerufen, NACHDEM der Container mit frischer MEMBERS-ENV neu gestartet wurde.
+# Gibt einen JSON-Report (deleted/kept_allowed) aus; Exit-Code != 0 bei Fehler.
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "reconcile-members":
+        try:
+            print(json.dumps(reconcile_members(), ensure_ascii=False))
+        except Exception as exc:  # keine DB-Änderung passiert -> nur melden
+            print(f"FEHLER reconcile-members: {exc}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print("Nutzung: python -m app.main reconcile-members", file=sys.stderr)
+        sys.exit(2)
