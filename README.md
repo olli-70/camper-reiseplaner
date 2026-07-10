@@ -221,6 +221,10 @@ ins Internet. Beim Betrieb beachten:
 - **Konten:** `ADMIN_USER`/`ADMIN_PASSWORD` seeden das Admin-Konto; weitere Nutzer
   nur über die **`MEMBERS`-Whitelist** mit persönlichem Einmalcode. Es gibt **kein
   offenes Registrieren** – wer nicht in `MEMBERS` (oder Admin) steht, kommt nicht rein.
+- **Nutzer freischalten:** Eintrag `{"email":…,"code":…}` zu `MEMBERS` hinzufügen und
+  den Container **neu starten** – die Whitelist wird beim Start neu eingelesen. Der
+  Nutzer meldet sich dann mit seinem Einmalcode an und setzt sein Passwort. Reines
+  Hinzufügen ist ungefährlich – bestehende Konten/Reisen bleiben unberührt.
 - **Nutzer entfernen = Daten löschen:** Einen Nutzer aus `MEMBERS` zu nehmen sperrt
   ihn sofort aus. Wird zusätzlich der Sync ausgeführt, wird sein Konto **inklusive
   Reisen** gelöscht (bewusst destruktiv):
