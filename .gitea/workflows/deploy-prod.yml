@@ -1,0 +1,24 @@
+name: Deploy prod (camper-web)
+
+# Läuft, sobald ein (von Olli freigegebener) Merge auf main landet.
+# Löst das Semaphore-Template "camper prod deploy" aus, das
+# ansible-playbook camper-reiseplaner.yml -l camper-web fährt.
+on:
+  push:
+    branches: [main]
+
+jobs:
+  trigger-prod-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Semaphore prod-Deploy anstoßen
+        run: |
+          set -e
+          echo "Loese Semaphore-Template 'camper prod deploy' (176) aus ..."
+          code=$(curl -sS -o /tmp/resp.json -w '%{http_code}' \
+            -X POST "https://semaphore.dorf27.com/api/project/4/tasks" \
+            -H "Authorization: Bearer ${{ secrets.SEMAPHORE_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"template_id":176,"project_id":4}')
+          echo "HTTP $code"; cat /tmp/resp.json || true
+          case "$code" in 20*) echo "OK, Deploy angestoßen." ;; *) echo "Fehler ($code)"; exit 1 ;; esac
