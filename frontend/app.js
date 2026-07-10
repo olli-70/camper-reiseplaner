@@ -145,9 +145,15 @@ async function onMapClick(e) {
   hintEl.textContent = HINT;
   const chosen = await confirmAdd(name);
   if (!chosen) return;
+  // Übernachtungsplatz -> volles Formular, damit die Reservierung direkt
+  // beim Anlegen erfasst werden kann. Punkt (POI) -> Sofortanlage wie bisher.
+  if (chosen.kind === "stop") {
+    openNewStopForm(chosen.name, lat, lng);
+    return;
+  }
   try {
     await api.send("POST", `/api/trips/${state.tripId}/stops`,
-      { name: chosen.name, lat, lng, status: "geplant", kind: chosen.kind });
+      { name: chosen.name, lat, lng, status: "geplant", kind: "poi" });
     await loadStops();
   } catch (err) {
     alert("Hinzufügen fehlgeschlagen: " + err.message);
@@ -186,11 +192,30 @@ function stopPopupDOM(s) {
     </div>
     <div class="edit-links">
       <button data-act="edit">Bearbeiten</button>
+      <button data-act="convert" title="In einen Punkt (POI) umwandeln">→ Punkt</button>
       <button data-act="del">Löschen</button>
     </div>`;
   el.querySelector('[data-act="edit"]').onclick = () => openForm(s);
+  el.querySelector('[data-act="convert"]').onclick = () => convertKind(s);
   el.querySelector('[data-act="del"]').onclick = () => deleteStop(s.id);
   return el;
+}
+
+// Wandelt einen Stopp zwischen Übernachtungsplatz ("stop") und Punkt ("poi") um.
+// Backend erlaubt den kind-Wechsel per PATCH; Reservierungsdaten bleiben erhalten.
+async function convertKind(s) {
+  if (isLocked()) { lockAlert(); return; }
+  const toStop = s.kind === "poi";
+  const ziel = toStop ? "in einen Übernachtungsplatz" : "in einen Punkt (POI)";
+  if (!confirm(`„${s.name}" ${ziel} umwandeln?`)) return;
+  try {
+    await api.send("PATCH", `/api/stops/${s.id}`, { kind: toStop ? "stop" : "poi" });
+    if (infoWindow) infoWindow.close();
+    infoOpenId = null;
+    await loadStops();
+  } catch (e) {
+    alert("Umwandeln fehlgeschlagen: " + e.message);
+  }
 }
 
 // ---- Marker rendern (Google Maps) -------------------------------------------
@@ -264,9 +289,10 @@ async function openPoiInfo(poi) {
   const noteHtml = poi.notiz ? `<div class="poi-note">${escapeHtml(poi.notiz)}</div>` : "";
   el.innerHTML =
     `<h4>${escapeHtml(poi.name)} <span class="badge poi">Punkt</span></h4>` + noteHtml +
-    `<div class="edit-links"><button data-act="edit">Bearbeiten / Notiz</button><button data-act="del">Löschen</button></div>` +
+    `<div class="edit-links"><button data-act="edit">Bearbeiten / Notiz</button><button data-act="convert" title="In einen Übernachtungsplatz umwandeln">→ Übernachtung</button><button data-act="del">Löschen</button></div>` +
     `<div class="poi-dist">${stops.length ? "Entfernungen werden berechnet …" : "Noch keine Übernachtungsplätze."}</div>`;
   el.querySelector('[data-act="edit"]').onclick = () => openForm(poi);
+  el.querySelector('[data-act="convert"]').onclick = () => convertKind(poi);
   el.querySelector('[data-act="del"]').onclick = () => deleteStop(poi.id);
   infoWindow.setContent(el);
   infoWindow.open(map, state.markers[poi.id]);
@@ -701,14 +727,20 @@ function applyShowIf(controlKey) {
 }
 
 // ---- Formular öffnen / schließen / speichern --------------------------------
-function openForm(stop) {
+// openForm(stop)            -> bestehenden Stopp/Punkt bearbeiten
+// openForm(null, prefill)   -> Neuanlage mit Vorbelegung (Name/kind); bei einem
+//                              neuen Übernachtungsplatz sind so die Reservierungs-
+//                              felder direkt im Formular erfassbar.
+function openForm(stop, prefill) {
   state.editingId = stop ? stop.id : null;
-  const isPoi = !!(stop && stop.kind === "poi");
+  const base = stop || prefill || null;      // Werte zum Vorbelegen
+  const isPoi = !!(base && base.kind === "poi");
   document.getElementById("formTitle").textContent =
-    stop ? (isPoi ? "Punkt bearbeiten" : "Stopp bearbeiten") : "Neuer Stopp";
+    stop ? (isPoi ? "Punkt bearbeiten" : "Stopp bearbeiten")
+         : (isPoi ? "Neuer Punkt" : "Neuer Übernachtungsplatz");
   STOP_FIELDS.forEach((f) => {
     const el = document.getElementById(fieldId(f.key));
-    const val = stop ? stop[f.key] : undefined;
+    const val = base ? base[f.key] : undefined;
     if (f.type === "checkbox") el.checked = !!val;
     else if (f.type === "datetime") el.value = toDTLocal(val);
     else el.value = val ?? f.default ?? "";
@@ -720,6 +752,13 @@ function openForm(stop) {
   const c = stop ? { lat: stop.lat, lng: stop.lng } : state.pendingCoords;
   document.getElementById("f_coords").textContent = c ? `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}` : "–";
   document.getElementById("stopForm").classList.remove("hidden");
+}
+
+// Neuen Übernachtungsplatz über das volle Formular anlegen -> Reservierung
+// (von/bis) kann direkt beim Anlegen mit erfasst werden.
+function openNewStopForm(name, lat, lng) {
+  state.pendingCoords = { lat, lng };
+  openForm(null, { name, kind: "stop", lat, lng });
 }
 
 function closeForm() {
@@ -1110,9 +1149,17 @@ async function doSearch() {
 async function addSearchResult(name, lat, lng, kind) {
   if (!state.tripId) { alert("Bitte zuerst eine Reise anlegen (＋)."); return; }
   if (isLocked()) { lockAlert(); return; }
+  // Übernachtungsplatz -> volles Formular (Reservierung direkt erfassbar).
+  if (kind === "stop") {
+    clearSearchMarkers();
+    document.getElementById("searchResults").innerHTML = "";
+    document.getElementById("searchInput").value = "";
+    openNewStopForm(name, lat, lng);
+    return;
+  }
   try {
     await api.send("POST", `/api/trips/${state.tripId}/stops`,
-      { name, lat, lng, status: "geplant", kind });
+      { name, lat, lng, status: "geplant", kind: "poi" });
     clearSearchMarkers();
     document.getElementById("searchResults").innerHTML = "";
     document.getElementById("searchInput").value = "";

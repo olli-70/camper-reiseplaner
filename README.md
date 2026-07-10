@@ -101,6 +101,10 @@ in `.env` änderbar), mit dem Admin-Konto anmelden.
 - Name, Status (geplant/besucht/reserviert), Notiz, Datum.
 - **Reservierung**: Häkchen + „reserviert von/bis"; Anzeige `🚐✅` (reserviert) /
   `🚐❓` (offen) und Zeile `An: TT.MM HH:MM · ab: TT.MM HH:MM`.
+  Beim **Anlegen** eines neuen Übernachtungsplatzes (Kartenklick oder Suche) öffnet
+  sich direkt das Formular, sodass die Reservierung **sofort mit erfasst** werden kann.
+- **Umwandeln**: über das Popup lässt sich ein Übernachtungsplatz mit einem Klick
+  in einen **Punkt (POI)** verwandeln – und umgekehrt (Reservierungsdaten bleiben erhalten).
 - **Route auf der Karte**: die Strecke wird gezeichnet – **je Etappe zwischen zwei
   Übernachtungen eine eigene, abwechselnd gefärbte Linie**.
 - **Straßen-km + Fahrzeit**: Übernachtung zeigt die Etappen-Summe (seit dem letzten
@@ -116,6 +120,8 @@ in `.env` änderbar), mit dem Admin-Konto anmelden.
 - **„in Route"**-Schalter je POI: nimmt den Punkt als **Wegpunkt** in die Route auf
   (erscheint sortierbar in der Liste 🚏, die Linie führt hindurch). Ohne den
   Schalter bleibt er nur ein Punkt auf der Karte.
+- **Umwandeln**: über das POI-Popup wird ein Punkt mit einem Klick in einen
+  **Übernachtungsplatz** verwandelt (und umgekehrt).
 
 **Karte & PWA**
 - Google Maps (Karte/Satellit/Gelände), „Mein Standort"-Button.

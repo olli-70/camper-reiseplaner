@@ -136,6 +136,40 @@ def test_poi_kind():
     client.delete(f"/api/trips/{tid}")
 
 
+def test_kind_conversion_both_ways():
+    """POI <-> Übernachtungsplatz per PATCH umwandeln (Basis für den Umwandeln-Button)."""
+    tid = client.post("/api/trips", json={"name": "Umwandeln"}).json()["id"]
+    # als POI anlegen -> in Übernachtungsplatz umwandeln
+    sid = client.post(
+        f"/api/trips/{tid}/stops", json={"name": "Spot", "lat": 1, "lng": 2, "kind": "poi"}
+    ).json()["id"]
+    assert client.patch(f"/api/stops/{sid}", json={"kind": "stop"}).json()["kind"] == "stop"
+    # und wieder zurück zum POI
+    assert client.patch(f"/api/stops/{sid}", json={"kind": "poi"}).json()["kind"] == "poi"
+    client.delete(f"/api/trips/{tid}")
+
+
+def test_create_stop_with_reservation():
+    """Neuer Übernachtungsplatz inkl. Reservierung in EINEM POST (Feature: Reservierung
+    direkt bei Neuanlage erfassen)."""
+    tid = client.post("/api/trips", json={"name": "Reservierung"}).json()["id"]
+    r = client.post(
+        f"/api/trips/{tid}/stops",
+        json={
+            "name": "Camping", "lat": 5, "lng": 6, "kind": "stop", "status": "reserviert",
+            "reserviert": True,
+            "reserviert_von": "2026-08-01T14:00", "reserviert_bis": "2026-08-03T11:00",
+        },
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["kind"] == "stop"
+    assert body["reserviert"] is True
+    assert body["reserviert_von"].startswith("2026-08-01T14:00")
+    assert body["reserviert_bis"].startswith("2026-08-03T11:00")
+    client.delete(f"/api/trips/{tid}")
+
+
 def test_reorder_stops():
     tid = client.post("/api/trips", json={"name": "Reorder"}).json()["id"]
     ids = [
