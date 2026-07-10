@@ -1213,6 +1213,11 @@ document.getElementById("authToggle").onclick = (e) => {
 ["authEmail", "authPassword", "authInvite"].forEach((id) =>
   document.getElementById(id).addEventListener("keydown",
     (e) => { if (e.key === "Enter") { e.preventDefault(); submitAuth(); } }));
+document.getElementById("exportBtn").onclick = () => {
+  document.getElementById("profileMenu").classList.add("hidden");
+  // Cookie-authentifizierter Download; Content-Disposition loest den Save-Dialog aus.
+  window.location.href = "/api/export.csv";
+};
 document.getElementById("logoutBtn").onclick = doLogout;
 
 function escapeHtml(s) {
