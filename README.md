@@ -33,16 +33,21 @@ beschränken (z. B. `https://camper.example.com/*`, fürs lokale Testen zusätzl
 ```bash
 git clone https://github.com/<dein-user>/camper-reiseplaner.git
 cd camper-reiseplaner
-cp .env.example .env          # darin GOOGLE_MAPS_API_KEY=... eintragen
+cp .env.example .env          # GOOGLE_MAPS_API_KEY, SESSION_SECRET, ADMIN_* eintragen
 docker compose up -d --build
 ```
 
-Fertig → im Browser **http://localhost:8082** öffnen (Port über `CAMPER_PORT`
-in `.env` änderbar).
+In `.env` mindestens setzen: `GOOGLE_MAPS_API_KEY` (Karte), `SESSION_SECRET`
+(Cookie-Signatur) sowie `ADMIN_USER` + `ADMIN_PASSWORD` (dein Login).
 
-> Ausführlicher – Key-Beschränkung, HTTPS für die PWA, Backup – steht weiter unten.
-> **Wichtig:** die App hat **kein Login** – nicht ungeschützt ins Internet stellen
-> ([Details](#️-sicherheit-kein-eingebautes-login)).
+Fertig → im Browser **http://localhost:8082** öffnen (Port über `CAMPER_PORT`
+in `.env` änderbar), mit dem Admin-Konto anmelden.
+
+> Ausführlicher – Key-Beschränkung, HTTPS für die PWA, weitere Konten, Backup –
+> steht weiter unten.
+> **Login vorhanden:** die App schützt sich selbst per E-Mail/Passwort und trennt
+> die Reisen je Konto. Trotzdem gehört sie hinter **HTTPS** (das Login-Cookie ist
+> standardmäßig `Secure`) – siehe [Sicherheit](#️-sicherheit--login).
 
 ---
 
@@ -55,7 +60,7 @@ in `.env` änderbar).
   - [1. Voraussetzungen](#1-voraussetzungen)
   - [2. Google-Maps-API-Key besorgen](#2-google-maps-api-key-besorgen)
   - [3. Projekt starten](#3-projekt-starten)
-- [⚠️ Sicherheit: kein eingebautes Login](#️-sicherheit-kein-eingebautes-login)
+- [⚠️ Sicherheit & Login](#️-sicherheit--login)
 - [HTTPS / Reverse-Proxy (empfohlen)](#https--reverse-proxy-empfohlen)
 - [Konfiguration (Umgebungsvariablen)](#konfiguration-umgebungsvariablen)
 - [Daten & Backup](#daten--backup)
@@ -70,6 +75,15 @@ in `.env` änderbar).
 ---
 
 ## Funktionen
+
+**Konten & Login**
+- Eingebauter **Login per E-Mail + Passwort** (Session-Cookie), kein externer
+  Dienst nötig. In der Kopfzeile: Profil-Button mit angemeldeter E-Mail und
+  **Abmelden** sowie die **App-Version**.
+- **Getrennte Konten**: jeder Nutzer sieht **nur seine eigenen Reisen**.
+- **Admin-Konto** wird aus der Konfiguration geseedet; weitere Nutzer werden über
+  eine Whitelist mit persönlichem **Einmalcode** freigeschaltet (setzen damit ihr
+  Passwort selbst). Kein offenes Registrieren.
 
 **Touren**
 - Beliebig viele Reisen; Umschalten über das Tour-Menü (Tour-Name ▾),
@@ -153,17 +167,18 @@ an den Browser ausgeliefert (er ist dort zwangsläufig sichtbar – deshalb die
    erforderlich; im normalen Privat-Betrieb entstehen praktisch keine Kosten –
    siehe [Kosten](#kosten)).
 2. Unter **APIs & Dienste → Bibliothek** diese vier APIs **aktivieren**:
-   - **Maps JavaScript API**
-   - **Directions API**
-   - **Geocoding API**
-   - **Places API (New)**
-3. Unter **APIs & Dienste → Anmeldedaten → Anmeldedaten erstellen → API-Schlüssel**
-   einen Key erzeugen.
-4. Den Key **einschränken** (wichtig, da er im Browser sichtbar ist):
-   - **Anwendungsbeschränkungen → Websites (HTTP-Referrer):** deine Domain
-     eintragen, z. B. `https://camper.example.com/*`. Zum lokalen Testen zusätzlich
-     `http://localhost:8082/*`.
-   - **API-Beschränkungen:** auf die vier oben genannten APIs begrenzen.
+   - **Maps JavaScript API** (Karte im Browser)
+   - **Directions API**, **Geocoding API**, **Places API (New)** (laufen server-seitig)
+3. Am besten **zwei Keys** anlegen (Trennung Browser ↔ Server). Für einen schnellen
+   Start genügt der Render-Key allein – der Server nutzt ihn dann als Fallback.
+   - **Render-Key** (`GOOGLE_MAPS_API_KEY`, **Pflicht**, im Browser sichtbar):
+     **API-Beschränkung nur auf „Maps JavaScript API"**, **Anwendungsbeschränkung
+     HTTP-Referrer** auf deine Domain (z. B. `https://camper.example.com/*`, lokal
+     zusätzlich `http://localhost:8082/*`).
+   - **Server-Key** (`GOOGLE_MAPS_SERVER_KEY`, empfohlen, erreicht den Browser nie):
+     API-Beschränkung auf Directions/Geocoding/Places (New), **Anwendungsbeschränkung
+     per IP-Adresse** auf deinen Server – **keine** Referrer-Beschränkung (die
+     Legacy-Webdienste lehnen referrer-beschränkte Keys ab).
 
 ### 3. Projekt starten
 
@@ -172,9 +187,10 @@ an den Browser ausgeliefert (er ist dort zwangsläufig sichtbar – deshalb die
 git clone https://github.com/<dein-user>/camper-reiseplaner.git
 cd camper-reiseplaner
 
-# Konfiguration anlegen und Key eintragen
+# Konfiguration anlegen und ausfüllen
 cp .env.example .env
-#   -> GOOGLE_MAPS_API_KEY=... in .env eintragen (Pflicht)
+#   Pflicht in .env: GOOGLE_MAPS_API_KEY (Karte), SESSION_SECRET (Cookie-Signatur),
+#   ADMIN_USER + ADMIN_PASSWORD (dein Login). Weitere Nutzer über MEMBERS.
 
 # Bauen & starten
 docker compose up -d --build
@@ -188,19 +204,27 @@ Health-Check: `curl http://localhost:8082/api/health` → `{"status":"ok"}`.
 
 ---
 
-## ⚠️ Sicherheit: kein eingebautes Login
+## ⚠️ Sicherheit & Login
 
-Diese App hat **bewusst keine Authentifizierung** – jeder, der die URL erreicht,
-kann alle Reisen sehen und ändern. Das ist für ein privates Tool gedacht. **Stelle
-die App niemals ungeschützt ins offene Internet.** Empfohlene Absicherung:
+Die App bringt einen **eigenen Login** mit (E-Mail + Passwort, signiertes
+Session-Cookie) und trennt die Reisen je Konto – sie darf also mit Zugangsschutz
+ins Internet. Beim Betrieb beachten:
 
-- Betrieb im Heimnetz oder über ein **VPN** (z. B. [Tailscale](https://tailscale.com/),
-  WireGuard) – so betreibt sie der Autor.
-- Oder ein **Reverse-Proxy mit Authentifizierung** davor (Basic-Auth,
-  [Authelia](https://www.authelia.com/), oauth2-proxy, …).
+- **`SESSION_SECRET` setzen** (zufälliger Wert, z. B.
+  `python -c "import secrets; print(secrets.token_hex(32))"`). Ohne eigenen Wert
+  greift ein unsicherer Default – niemals in Produktion so lassen.
+- **HTTPS verwenden.** Das Login-Cookie ist standardmäßig `Secure` (nur über HTTPS).
+  Für rein lokales HTTP-Testen `COOKIE_SECURE=0` setzen.
+- **Konten:** `ADMIN_USER`/`ADMIN_PASSWORD` seeden das Admin-Konto; weitere Nutzer
+  nur über die **`MEMBERS`-Whitelist** mit persönlichem Einmalcode. Es gibt **kein
+  offenes Registrieren** – wer nicht in `MEMBERS` (oder Admin) steht, kommt nicht rein.
+- **Passwörter** werden mit **bcrypt** gehasht; ein einfacher **Rate-Limiter**
+  (`LOGIN_RATELIMIT`) bremst Brute-Force pro IP.
+- **Render-Key** zusätzlich per **HTTP-Referrer** auf deine Domain beschränken
+  (Schritt 2), damit er nicht von fremden Seiten missbraucht wird.
 
-Zusätzlich: den Google-Key **immer per HTTP-Referrer** auf deine Domain beschränken
-(Schritt 2), damit er nicht von fremden Seiten missbraucht wird.
+Wer die App lieber ganz privat betreibt, kann sie weiterhin zusätzlich ins Heimnetz
+oder hinter ein **VPN** (z. B. [Tailscale](https://tailscale.com/), WireGuard) legen.
 
 ---
 
@@ -229,7 +253,15 @@ Alle Optionen stehen in `.env` (Vorlage: `.env.example`):
 
 | Variable | Pflicht | Standard | Bedeutung |
 |---|:---:|---|---|
-| `GOOGLE_MAPS_API_KEY` | ✅ | – | Google-Maps-Key (Karte + Routing + Suche). Ohne ihn bleibt die Karte leer. |
+| `GOOGLE_MAPS_API_KEY` | ✅ | – | Render-Key (Karte im Browser). Ohne ihn bleibt die Karte leer. |
+| `GOOGLE_MAPS_SERVER_KEY` | – | Render-Key | Server-Key für Directions/Places/Geocoding (erreicht den Browser nie). Leer = Fallback auf den Render-Key. |
+| `GOOGLE_KEY_REFERER` | – | – | `Referer`-Header, den der Server mitschickt (nur nötig, wenn der Server-Key referrer-beschränkt ist). |
+| `SESSION_SECRET` | ✅ | *unsicherer Default* | Signaturschlüssel des Login-Cookies. In Produktion zwingend eigenen Zufallswert setzen. |
+| `ADMIN_USER` | ✅ | – | E-Mail des Admin-Kontos (wird beim Start geseedet; erbt herrenlose Bestandsreisen). |
+| `ADMIN_PASSWORD` | ✅ | – | Passwort des Admin-Kontos (Quelle der Wahrheit, folgt der Konfiguration). |
+| `MEMBERS` | – | `[]` | Weitere Nutzer als JSON `[{"email":…,"code":…}]`. Nur diese (plus Admin) dürfen rein; `code` = persönlicher Einmalcode zum Passwort-Setzen. |
+| `COOKIE_SECURE` | – | `1` | Login-Cookie nur über HTTPS senden. Für lokales HTTP-Testen auf `0`. |
+| `LOGIN_RATELIMIT` | – | `20` | Login-Versuche pro IP je 5-Minuten-Fenster. |
 | `CAMPER_PORT` | – | `8082` | Host-Port. Der Container lauscht intern immer auf `8000`. |
 
 Intern (im Container gesetzt, normalerweise nicht anzufassen):
@@ -301,11 +333,14 @@ cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 GOOGLE_MAPS_API_KEY=dein_key CAMPER_DB=./dev.db \
+  SESSION_SECRET=dev COOKIE_SECURE=0 \
+  ADMIN_USER=admin@example.de ADMIN_PASSWORD=geheim1234 \
   uvicorn app.main:app --reload --port 8000
 ```
 
 Das Frontend wird vom Backend unter `/` mit ausgeliefert – einfach
-`http://localhost:8000` öffnen.
+`http://localhost:8000` öffnen und mit dem Admin-Konto anmelden
+(`COOKIE_SECURE=0`, weil lokal ohne HTTPS).
 
 **Tests** (pytest):
 
@@ -322,8 +357,11 @@ PYTHONPATH=. pytest -q
 | Methode | Pfad | Zweck |
 |---|---|---|
 | GET | `/api/health` | Health-Check |
-| GET | `/api/config` | liefert den Google-Maps-Key an das Frontend |
-| GET / POST | `/api/trips` | Reisen listen / anlegen |
+| GET | `/api/config` | liefert Render-Key + App-Version an das Frontend |
+| POST | `/api/auth/login` · `/api/auth/set-password` · `/api/auth/logout` | Anmelden / Passwort per Einmalcode setzen / Abmelden |
+| GET | `/api/auth/me` | angemeldeten Nutzer (E-Mail) abfragen |
+| POST | `/api/directions` · `/api/places` · GET `/api/geocode` | Google-Web-Dienste server-seitig (Key bleibt am Server) |
+| GET / POST | `/api/trips` | Reisen listen / anlegen (nur eigene) |
 | GET / PATCH / DELETE | `/api/trips/{id}` | Reise lesen / ändern / löschen |
 | GET / POST | `/api/trips/{id}/stops` | Stopps + POIs einer Reise |
 | PUT | `/api/trips/{id}/stops/order` | Reihenfolge speichern |
@@ -340,15 +378,17 @@ Interaktive API-Doku (FastAPI): `http://localhost:8082/docs`.
   in die Route auf.
 - **Neues Feld hinzufügen** ist bewusst einfach gehalten (eine Zeile im Modell +
   eine Zeile in der Frontend-Feldkonfiguration, DB-Spalte entsteht automatisch).
-  Details und der Plan für Mandantenfähigkeit stehen in
+  Details sowie Login & Daten-Isolation (Mandantenfähigkeit) stehen in
   [`docs/ARCHITEKTUR.md`](docs/ARCHITEKTUR.md).
 
 ---
 
 ## Einschränkungen / Nicht-Ziele
 
-- **Kein Login / Single-Tenant** – Zugriffsschutz erfolgt außerhalb der App
-  (VPN/Reverse-Proxy).
+- **Konten per Whitelist, kein offenes Registrieren** – neue Nutzer werden über
+  `MEMBERS` (E-Mail + Einmalcode) freigeschaltet, nicht per Self-Service.
+- **Kein Teilen zwischen Konten** – Reisen sind je Konto isoliert; ein Haushalt
+  teilt sich sinnvollerweise **ein** Konto.
 - **Offline nur lesen** – ohne Netz gibt es keine Karte und kein Bearbeiten
   (die bereits geladenen Daten bleiben im Cache sichtbar).
 - Karte/Routing/Suche sind an **Google Maps** gebunden (API-Key erforderlich).
