@@ -361,17 +361,12 @@ def list_trips(user: User = Depends(get_current_user), session: Session = Depend
     ).all()
 
 
-@app.get("/api/export.csv")
-def export_csv(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
-    """Alle Reisen des angemeldeten Nutzers als CSV — Übernachtungsplätze UND POIs.
-    Semikolon-getrennt + UTF-8-BOM, damit Excel/Numbers Umlaute und Spalten korrekt
-    darstellen. Nur eigene Daten (user-scoped)."""
-    trips = session.exec(
-        select(Trip).where(Trip.user_id == user.id).order_by(Trip.start_datum, Trip.id)
-    ).all()
+def _stops_csv(session: Session, trips: List[Trip]) -> str:
+    """CSV (Semikolon + UTF-8-BOM, Excel/Numbers-tauglich) der Übernachtungsplätze
+    UND POIs der übergebenen Reisen."""
     art = {"stop": "Übernachtung", "poi": "POI"}
     buf = io.StringIO()
-    buf.write("﻿")  # UTF-8-BOM für Excel
+    buf.write("﻿")  # UTF-8-BOM
     writer = csv.writer(buf, delimiter=";")
     writer.writerow([
         "Reise", "Art", "Name", "Status", "Datum", "Notiz",
@@ -397,11 +392,39 @@ def export_csv(user: User = Depends(get_current_user), session: Session = Depend
                 s.reserviert_von.isoformat(sep=" ", timespec="minutes") if s.reserviert_von else "",
                 s.reserviert_bis.isoformat(sep=" ", timespec="minutes") if s.reserviert_bis else "",
             ])
+    return buf.getvalue()
+
+
+def _csv_download(content: str, filename: str) -> Response:
     return Response(
-        content=buf.getvalue(),
+        content=content,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="camper-reisen.csv"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _csv_slug(name: str) -> str:
+    return (re.sub(r"[^a-zA-Z0-9]+", "-", name).strip("-").lower() or "reise")[:60]
+
+
+@app.get("/api/export.csv")
+def export_csv(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    """Alle eigenen Reisen als CSV (user-scoped)."""
+    trips = session.exec(
+        select(Trip).where(Trip.user_id == user.id).order_by(Trip.start_datum, Trip.id)
+    ).all()
+    return _csv_download(_stops_csv(session, trips), "camper-reisen.csv")
+
+
+@app.get("/api/trips/{trip_id}/export.csv")
+def export_trip_csv(
+    trip_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Eine einzelne eigene Reise als CSV (Fremdzugriff -> 404)."""
+    trip = _owned_trip(session, trip_id, user)
+    return _csv_download(_stops_csv(session, [trip]), f"camper-{_csv_slug(trip.name)}.csv")
 
 
 @app.post("/api/trips", response_model=Trip, status_code=201)

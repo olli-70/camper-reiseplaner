@@ -84,8 +84,9 @@ in `.env` änderbar), mit dem Admin-Konto anmelden.
 - **Admin-Konto** wird aus der Konfiguration geseedet; weitere Nutzer werden über
   eine Whitelist mit persönlichem **Einmalcode** freigeschaltet (setzen damit ihr
   Passwort selbst). Kein offenes Registrieren.
-- **CSV-Export**: eigene Reisen (Übernachtungsplätze + POIs) über das Profil-Menü
-  als CSV herunterladen (Excel/Numbers-tauglich).
+- **CSV-Export**: eigene Reisen (Übernachtungsplätze + POIs) als CSV herunterladen
+  (Excel/Numbers-tauglich) — **alle** über das Profil-Menü oder **einzeln** über die
+  Tour-Einstellungen (⚙️).
 
 **Touren**
 - Beliebig viele Reisen; Umschalten über das Tour-Menü (Tour-Name ▾),
@@ -363,6 +364,7 @@ PYTHONPATH=. pytest -q
 | POST | `/api/auth/login` · `/api/auth/set-password` · `/api/auth/logout` | Anmelden / Passwort per Einmalcode setzen / Abmelden |
 | GET | `/api/auth/me` | angemeldeten Nutzer (E-Mail) abfragen |
 | GET | `/api/export.csv` | alle eigenen Reisen (Übernachtungsplätze + POIs) als CSV |
+| GET | `/api/trips/{id}/export.csv` | eine einzelne eigene Reise als CSV |
 | POST | `/api/directions` · `/api/places` · GET `/api/geocode` | Google-Web-Dienste server-seitig (Key bleibt am Server) |
 | GET / POST | `/api/trips` | Reisen listen / anlegen (nur eigene) |
 | GET / PATCH / DELETE | `/api/trips/{id}` | Reise lesen / ändern / löschen |

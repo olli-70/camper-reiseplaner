@@ -1187,6 +1187,11 @@ document.addEventListener("click", (e) => {
 });
 document.getElementById("tourEditBtn").onclick = openTourForm;
 document.getElementById("t_cancel").onclick = closeTourForm;
+document.getElementById("t_export").onclick = () => {
+  if (!state.tripId) return;
+  closeTourForm();
+  window.location.href = `/api/trips/${state.tripId}/export.csv`;
+};
 document.getElementById("t_save").onclick = saveTourForm;
 document.getElementById("searchBtn").onclick = doSearch;
 document.getElementById("searchInput").onkeydown = (e) => {
