@@ -72,15 +72,22 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   color: #fff; opacity: .7; text-decoration: none;
 }
 .repo-link:hover { opacity: 1; }
+/* Profil-Button + Menü als eine Einheit: der Wrapper ist der Positionierungs-
+   Anker, damit das Dropdown IMMER direkt am Button aufklappt (egal wo der Button
+   in der umbrechenden Topbar landet) – nicht an der rechten Topbar-Kante. */
+.profile-wrap {
+  position: relative; display: inline-flex; flex: 0 0 auto; max-width: 45vw;
+}
 /* Profil-Button: E-Mail wird bei Bedarf mit … gekürzt (Topbar bleibt schmal) */
-.profile { max-width: 45vw; }
+.profile { max-width: 100%; }
 .profile-email {
   display: inline-block; max-width: 32vw; vertical-align: bottom;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* Profil-Menü (Logout) – rechtsbündig, sonst wie das Tour-Menü */
+/* Profil-Menü (Logout) – rechtsbündig direkt unter dem Profil-Button.
+   Anker ist .profile-wrap, deshalb hier top:100%; right:0 relativ zum Button. */
 #profileMenu {
-  position: absolute; top: 100%; right: .5rem; z-index: 30;
+  position: absolute; top: 100%; right: 0; z-index: 30;
   background: #fff; color: #111; border-radius: 8px;
   box-shadow: 0 4px 14px #0004; min-width: 200px; max-width: 80vw;
   padding: .25rem; margin-top: .25rem;

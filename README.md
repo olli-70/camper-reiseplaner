@@ -98,7 +98,7 @@ in `.env` änderbar), mit dem Admin-Konto anmelden.
   wieder lösbar.
 
 **Übernachtungsplätze** (Liste, per Drag & Drop sortierbar)
-- Name, Status (geplant/besucht/reserviert), Notiz, Datum.
+- Name, Status (geplant/besucht/reserviert), Notiz.
 - **An / Ab**: Ankunft und Abfahrt (Datum + Uhrzeit) lassen sich **immer** eintragen —
   **unabhängig** von der Reservierung. Anzeige-Zeile `An: TT.MM HH:MM · ab: TT.MM HH:MM`.
 - **Reservierung**: separates Häkchen „reserviert / gebucht" (setzt den Status auf
@@ -119,11 +119,12 @@ in `.env` änderbar), mit dem Admin-Konto anmelden.
 
 **POIs** (Points of Interest, ohne Übernachtung)
 - Aufklappmenü „📍 Punkte"; Notiz je POI.
-- **Datum & Uhrzeit** je POI (optional) — wird in Popup und Liste angezeigt.
+- **An / Ab** je POI (optional) — **identisch** zu den Übernachtungsplätzen (Datum +
+  Uhrzeit), wird in Popup und Liste angezeigt (`An: … · Ab: …`).
 - Klick auf einen POI → **Entfernungen zu allen Übernachtungsplätzen** (sortiert).
 - **„in Route"**-Schalter je POI: nimmt den Punkt als **Wegpunkt** in die Route auf
   (erscheint sortierbar in der Liste 🚏, die Linie führt hindurch). Ohne den
-  Schalter bleibt er nur ein Punkt auf der Karte. Hat der POI ein **Datum & Uhrzeit**,
+  Schalter bleibt er nur ein Punkt auf der Karte. Hat der POI ein **An**-Datum/-Uhrzeit,
   wird er beim Aufnehmen **zeitlich passend** zwischen die terminierten Übernachtungen
   einsortiert (sonst ans Ende).
 - **Umwandeln**: über das POI-Popup wird ein Punkt mit einem Klick in einen

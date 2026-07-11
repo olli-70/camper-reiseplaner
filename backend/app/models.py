@@ -51,14 +51,14 @@ class Stop(SQLModel, table=True):
     in_route: bool = False  # nur für POIs relevant: als Wegpunkt in die Route aufnehmen
     status: str = "geplant"
     notiz: Optional[str] = None
-    datum: Optional[date] = None
     reihenfolge: int = 0
     reserviert: bool = False  # eigenständiges Flag „gebucht" – unabhängig von An/Ab
     # An/Ab-Zeiten, UNABHÄNGIG von `reserviert` befüllbar (werden immer gespeichert).
-    # Bei einem POI trägt reserviert_von den „Datum & Uhrzeit"-Zeitpunkt
-    # (reserviert_bis bleibt leer) und dient als Sortierschlüssel für die
-    # zeitliche Routen-Einordnung.
-    reserviert_von: Optional[datetime] = None  # An (Ankunft) / POI-Zeitpunkt
+    # Gelten identisch für Übernachtungsplätze UND POIs. reserviert_von (An) dient
+    # zugleich als Sortierschlüssel für die zeitliche Routen-Einordnung.
+    # (Das frühere Einzelfeld `datum` wurde entfernt; Bestandswerte wurden per
+    #  Backfill nach reserviert_von übernommen – siehe db.py.)
+    reserviert_von: Optional[datetime] = None  # An (Ankunft)
     reserviert_bis: Optional[datetime] = None  # Ab (Abfahrt)
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
@@ -94,14 +94,10 @@ class StopCreate(SQLModel):
     in_route: bool = False
     status: str = "geplant"
     notiz: Optional[str] = None
-    datum: Optional[date] = None
     reihenfolge: int = 0
     reserviert: bool = False  # eigenständiges Flag „gebucht" – unabhängig von An/Ab
-    # An/Ab-Zeiten, UNABHÄNGIG von `reserviert` befüllbar (werden immer gespeichert).
-    # Bei einem POI trägt reserviert_von den „Datum & Uhrzeit"-Zeitpunkt
-    # (reserviert_bis bleibt leer) und dient als Sortierschlüssel für die
-    # zeitliche Routen-Einordnung.
-    reserviert_von: Optional[datetime] = None  # An (Ankunft) / POI-Zeitpunkt
+    # An/Ab-Zeiten, identisch für Übernachtungsplätze UND POIs.
+    reserviert_von: Optional[datetime] = None  # An (Ankunft)
     reserviert_bis: Optional[datetime] = None  # Ab (Abfahrt)
 
 
@@ -113,7 +109,6 @@ class StopUpdate(SQLModel):
     in_route: Optional[bool] = None
     status: Optional[str] = None
     notiz: Optional[str] = None
-    datum: Optional[date] = None
     reihenfolge: Optional[int] = None
     reserviert: Optional[bool] = None
     reserviert_von: Optional[datetime] = None

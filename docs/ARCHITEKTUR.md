@@ -17,10 +17,13 @@ Browser (PWA, Google Maps)  ──REST──►  FastAPI  ──►  SQLite (/da
   `Stop.in_route` (nur POIs): POI als **Wegpunkt** in die Route aufnehmen –
   er erscheint dann sortierbar in der Liste und liegt auf der Routenlinie.
   `reserviert_von`/`reserviert_bis` = **An/Ab-Zeiten**, unabhängig vom Flag
-  `reserviert` befüllbar; bei einem POI trägt `reserviert_von` dessen
-  **Datum & Uhrzeit** und dient als Sortierschlüssel (`routeTime`) für die
+  `reserviert` befüllbar und **identisch für Übernachtungsplätze UND POIs**.
+  `reserviert_von` (An) dient zugleich als Sortierschlüssel (`routeTime`) für die
   **zeitliche Einordnung** eines POI beim Aktivieren von „in Route"
   (`placeInRouteByTime`: vor den ersten Halt mit späterer Zeit).
+  (Das frühere Einzelfeld `Stop.datum` wurde entfernt; Bestandswerte übernimmt
+  ein einmaliger, nicht-destruktiver Backfill nach `reserviert_von` –
+  `db.py::_backfill_datum_to_an()`, die Alt-Spalte bleibt ungenutzt in SQLite.)
 - **Route (etappenweise):** `state.route` = Übernachtungen + `in_route`-POIs,
   gemeinsam nach `reihenfolge` sortiert. Anker = Start, jede Übernachtung, Ziel;
   zwischen zwei Ankern liegt eine **Etappe**, deren `in_route`-POIs zu Wegpunkten
@@ -58,9 +61,9 @@ kleine Stellen** nötig:
    Optional: `options` (bei `select`), `default`, `required`,
    `showIf: "<checkbox-key>"` (Feld nur sichtbar, wenn die Checkbox an ist),
    `poi: true` (Feld auch beim **POI**-Bearbeiten zeigen; ohne die Flag erscheint
-   es nur bei Übernachtungsplätzen – POIs zeigen sonst nur Name, Datum & Uhrzeit,
-   Notiz), `poiLabel` (abweichende Beschriftung bei POIs, z.B. „An (Ankunft)"
-   ↔ „Datum & Uhrzeit").
+   es nur bei Übernachtungsplätzen). Optional `poiLabel` (abweichende Beschriftung
+   bei POIs) steht generisch bereit, wird aber aktuell von keinem Feld genutzt –
+   An/Ab sind bei Übernachtungen und POIs bewusst **identisch** beschriftet.
 
 3. **Neu bauen/deployen** (`docker compose up -d --build`) und den
    Service-Worker-Cache in `frontend/sw.js` hochzählen (`camper-vN`), damit die
