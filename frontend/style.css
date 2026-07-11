@@ -336,8 +336,37 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   font-size: .8rem; text-decoration: none; padding: .3rem .5rem;
   border-radius: 6px; background: var(--bg); color: #fff;
 }
-.popup .edit-links { display: flex; gap: .4rem; margin-top: .4rem; }
+.popup .edit-links { display: flex; gap: .4rem; margin-top: .4rem; flex-wrap: wrap; }
 .popup .edit-links button {
   font-size: .75rem; border: 1px solid #ccc; background: #fafafa;
   border-radius: 6px; padding: .2rem .45rem; cursor: pointer;
 }
+
+/* Umkreis-Stellplätze (OSM): Auslöser im POI-Popup */
+.popup .poi-nearby-row { margin-top: .5rem; }
+.popup .poi-nearby-row button {
+  font-size: .8rem; border: 1px solid #7c3aed; background: #7c3aed; color: #fff;
+  border-radius: 6px; padding: .35rem .55rem; cursor: pointer; width: 100%;
+}
+.popup .poi-nearby-row button:hover { background: #6d28d9; }
+.popup .poi-nearby-row button:disabled { opacity: .6; cursor: default; }
+/* Stellplatz-Detail-Popup */
+.badge.campsite { background: #7c3aed; }
+.popup.campsite-popup .campsite-info { font-size: .82rem; color: #333; margin-top: .3rem; }
+.popup.campsite-popup .campsite-info > div { margin: .12rem 0; }
+.popup.campsite-popup .campsite-info a { color: #6d28d9; }
+/* Ausblenden-Leiste (schwebt unten über der Karte) */
+#nearbyBar {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: max(1rem, env(safe-area-inset-bottom)); z-index: 1200;
+  display: flex; align-items: center; gap: .6rem;
+  background: #7c3aed; color: #fff; border-radius: 999px;
+  padding: .5rem .5rem .5rem .9rem; box-shadow: 0 4px 16px #0005;
+  max-width: 92vw; font-size: .85rem;
+}
+#nearbyBar .nearby-bar-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#nearbyBar .nearby-bar-clear {
+  flex: 0 0 auto; border: none; background: #ffffff2e; color: #fff;
+  border-radius: 999px; padding: .35rem .7rem; cursor: pointer; font: inherit; white-space: nowrap;
+}
+#nearbyBar .nearby-bar-clear:hover { background: #ffffff4d; }

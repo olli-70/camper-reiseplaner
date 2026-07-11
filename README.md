@@ -122,6 +122,14 @@ in `.env` änderbar), mit dem Admin-Konto anmelden.
 - **An / Ab** je POI (optional) — **identisch** zu den Übernachtungsplätzen (Datum +
   Uhrzeit), wird in Popup und Liste angezeigt (`An: … · Ab: …`).
 - Klick auf einen POI → **Entfernungen zu allen Übernachtungsplätzen** (sortiert).
+- **🏕 Stellplätze im Umkreis (25 km)**: Button im POI-Popup findet über
+  **OpenStreetMap/Overpass** (`tourism=caravan_site`) Wohnmobil-Stellplätze rund um
+  den POI. Treffer erscheinen als **eigene violette Rauten-Marker** (klar
+  unterscheidbar von Übernachtungen/POIs); Klick zeigt die **OSM-Details** (Adresse,
+  Gebühr, Kapazität, Ver-/Entsorgung, Strom/Wasser, Öffnungszeiten, Telefon,
+  Website) und bietet **„🛏 Als Übernachtung"** übernehmen. Eine schwebende Leiste
+  **„✕ ausblenden"** räumt alle Treffer mit einem Klick wieder weg. Die Abfrage läuft
+  **server-seitig** (`/api/campsites-nearby`, kein CORS, Overpass-Etikette + Cache).
 - **„in Route"**-Schalter je POI: nimmt den Punkt als **Wegpunkt** in die Route auf
   (erscheint sortierbar in der Liste 🚏, die Linie führt hindurch). Ohne den
   Schalter bleibt er nur ein Punkt auf der Karte. Hat der POI ein **An**-Datum/-Uhrzeit,
@@ -160,6 +168,7 @@ Browser (PWA, Google Maps)  ──REST──►  FastAPI  ──►  SQLite (/da
 | Route + Etappen-km/Fahrzeit | Google Directions API | **ja** |
 | Ortssuche | Google Places API (New) → Geocoding → OSM Nominatim (Fallback) | ja / nein |
 | POI→Plätze-Entfernungsmatrix (im POI-Popup) | [OSRM](https://project-osrm.org/) Demo-Server | nein |
+| Stellplätze im Umkreis / entlang der Route | [OSM Overpass API](https://overpass-api.de/) (`tourism=caravan_site` u.a.) | nein |
 
 Der Google-Key wird als Umgebungsvariable gesetzt und über `GET /api/config`
 an den Browser ausgeliefert (er ist dort zwangsläufig sichtbar – deshalb die
@@ -392,6 +401,7 @@ PYTHONPATH=. pytest -q
 | GET | `/api/export.csv` | alle eigenen Reisen (Übernachtungsplätze + POIs) als CSV |
 | GET | `/api/trips/{id}/export.csv` | eine einzelne eigene Reise als CSV |
 | POST | `/api/directions` · `/api/places` · GET `/api/geocode` | Google-Web-Dienste server-seitig (Key bleibt am Server) |
+| POST | `/api/campsites-nearby` | Stellplätze (OSM `tourism=caravan_site`) im Umkreis eines Punktes; proxied Overpass + Cache |
 | GET / POST | `/api/trips` | Reisen listen / anlegen (nur eigene) |
 | GET / PATCH / DELETE | `/api/trips/{id}` | Reise lesen / ändern / löschen |
 | GET / POST | `/api/trips/{id}/stops` | Stopps + POIs einer Reise |

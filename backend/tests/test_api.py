@@ -266,3 +266,82 @@ def test_trip_and_stop_lifecycle():
     assert len(stops) == 1
     assert client.delete(f"/api/stops/{stop_id}").status_code == 204
     assert client.delete(f"/api/trips/{trip_id}").status_code == 204
+
+
+# ---- Umkreis-Stellplätze (OSM/Overpass, server-seitig proxied) ---------------
+# Aufgezeichneter Overpass-Response (node + way mit center + unbrauchbares
+# Element) -> wir mocken _overpass_query, damit im Test NIE echt Overpass läuft.
+import app.main as main_mod  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
+
+_RECORDED_OVERPASS = {
+    "elements": [
+        {"type": "node", "id": 1, "lat": 52.5, "lon": 13.4,
+         "tags": {"tourism": "caravan_site", "name": "Stellplatz Mitte",
+                  "fee": "yes", "capacity": "20", "sanitary_dump_station": "yes",
+                  "website": "example.com", "addr:city": "Berlin", "junk": "weg"}},
+        {"type": "way", "id": 2, "center": {"lat": 52.6, "lon": 13.5},
+         "tags": {"tourism": "caravan_site"}},          # ohne Name -> Fallback
+        {"type": "node", "id": 3, "lat": None, "lon": None, "tags": {}},  # -> gefiltert
+    ]
+}
+
+
+def test_campsites_nearby_requires_auth():
+    anon = TestClient(app)
+    assert anon.post("/api/campsites-nearby",
+                     json={"lat": 52.5, "lng": 13.4}).status_code == 401
+
+
+def test_campsites_nearby_parses_overpass(monkeypatch):
+    async def fake_overpass(query):
+        assert 'tourism"="caravan_site' in query
+        assert "around:25000" in query          # Default-Radius 25 km
+        assert "out center" in query            # Center für ways/relations
+        return _RECORDED_OVERPASS
+
+    monkeypatch.setattr(main_mod, "_overpass_query", fake_overpass)
+    r = client.post("/api/campsites-nearby", json={"lat": 52.51, "lng": 13.41})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["count"] == 2                   # unbrauchbares Element gefiltert
+    assert body["radius"] == 25000
+    first = body["campsites"][0]
+    assert first["name"] == "Stellplatz Mitte"
+    assert first["tags"]["fee"] == "yes"
+    assert first["tags"]["capacity"] == "20"
+    assert first["tags"]["sanitary_dump_station"] == "yes"
+    assert "junk" not in first["tags"]          # nur relevante Tags durchgereicht
+    second = body["campsites"][1]
+    assert second["lat"] == 52.6 and second["lng"] == 13.5   # center übernommen
+    assert second["name"] == "Wohnmobil-Stellplatz"          # Fallback ohne name
+
+
+def test_campsites_nearby_radius_clamped(monkeypatch):
+    captured = {}
+
+    async def fake_overpass(query):
+        captured["q"] = query
+        return {"elements": []}
+
+    monkeypatch.setattr(main_mod, "_overpass_query", fake_overpass)
+    r = client.post("/api/campsites-nearby",
+                    json={"lat": 48.1, "lng": 11.6, "radius": 999999})
+    assert r.status_code == 200
+    assert r.json()["radius"] == 50000          # auf Max gedeckelt
+    assert "around:50000" in captured["q"]
+
+
+def test_campsites_nearby_validation():
+    assert client.post("/api/campsites-nearby", json={"lat": 52.5}).status_code == 422
+    assert client.post("/api/campsites-nearby",
+                       json={"lat": 999, "lng": 13.4}).status_code == 422
+
+
+def test_campsites_nearby_overpass_down(monkeypatch):
+    async def boom(query):
+        raise HTTPException(502, "Overpass nicht erreichbar")
+
+    monkeypatch.setattr(main_mod, "_overpass_query", boom)
+    r = client.post("/api/campsites-nearby", json={"lat": 40.0, "lng": 9.0})
+    assert r.status_code == 502
