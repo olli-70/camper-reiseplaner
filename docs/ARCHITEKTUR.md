@@ -34,7 +34,18 @@ Browser (PWA, Google Maps)  ──REST──►  FastAPI  ──►  SQLite (/da
 - **Externe Dienste (gratis-Kontingent):** Google Maps JS (Basiskarte + Directions,
   Key als ENV `GOOGLE_MAPS_API_KEY` → `/api/config`, Referrer-beschränkt), OSRM Demo
   (`/table` = POI→alle Plätze im POI-Popup), Google Places/Geocoder + Nominatim
-  (Ortssuche/Reverse-Geocoding). Kein Dienst wird serverseitig gebraucht.
+  (Ortssuche/Reverse-Geocoding) und **OSM Overpass** (Stellplatz-Suche).
+- **Overpass-Proxy (`POST /api/campsites-nearby`):** Findet OSM
+  `tourism=caravan_site` im Umkreis (Default 25 km, max 50 km) eines POI. Läuft
+  **server-seitig** (kein Browser-CORS, kontrollierte Overpass-Last):
+  `nwr[...](around:R,lat,lon)` + `out center` (Center-Koordinaten auch für
+  ways/relations). Overpass-**Etikette**: sprechender `User-Agent`, 30 s Timeout,
+  mehrere Instanzen als Fallback bei 429/504, 502 bei Totalausfall; kurzer
+  In-Memory-Cache (Key = gerundete Koordinaten + Radius, TTL 10 min). Frontend
+  zeigt Treffer als eigene violette Rauten-Marker, Detail-Popup aus den OSM-Tags
+  und eine Leiste zum kompletten Ausblenden (`clearNearbyCampsites`).
+  (Hinweis: Die ältere Suche *entlang der Route* fragt Overpass noch direkt aus
+  dem Browser ab – bewusst so belassen; die POI-Umkreissuche ist der proxied Weg.)
 - **Backup:** SQLite-Online-Snapshot (kein Stopp nötig); Befehle im
   [README → Daten & Backup](../README.md#daten--backup).
 

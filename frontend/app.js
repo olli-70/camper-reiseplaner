@@ -43,6 +43,7 @@ let geomLib = null;       // Google "geometry"-Library (Polyline dekodieren)
 let routePolylines = [];  // je Etappe eine eigene Linie (zwischen Übernachtungen)
 let routeSegments = [];   // je Etappe { label, path } – für Etappen-Auswahl der Suche
 let searchMarkers = [];   // temporäre Fund-Pins der Routensuche
+let nearbyMarkers = [];   // Umkreis-Stellplätze (OSM) um einen POI – eigene Pins
 const STATUS_COLORS = { geplant: "#2563eb", besucht: "#16a34a", reserviert: "#ea580c" };
 // Etappen-Linien wechseln die Farbe (Tagesgrenzen sichtbar); kein Marker-Farbwert
 const SEGMENT_COLORS = ["#0f766e", "#06b6d4"];
@@ -145,6 +146,12 @@ async function onMapClick(e) {
   hintEl.textContent = HINT;
   const chosen = await confirmAdd(name);
   if (!chosen) return;
+  // Separater Button „Stellplätze in der Nähe": NICHTS speichern – dieselbe
+  // Overpass-Umkreissuche wie beim POI-Button, um die angeklickten Koordinaten.
+  if (chosen.kind === "nearby") {
+    findCampsitesNear(lat, lng, name, null);
+    return;
+  }
   // Übernachtungsplatz -> volles Formular, damit die Reservierung direkt
   // beim Anlegen erfasst werden kann. Punkt (POI) -> Sofortanlage wie bisher.
   if (chosen.kind === "stop") {
@@ -296,10 +303,12 @@ async function openPoiInfo(poi) {
   el.innerHTML =
     `<h4>${escapeHtml(poi.name)} <span class="badge poi">Punkt</span></h4>` + timeHtml + noteHtml +
     `<div class="edit-links"><button data-act="edit">Bearbeiten / Notiz</button><button data-act="convert" title="In einen Übernachtungsplatz umwandeln">→ Übernachtung</button><button data-act="del">Löschen</button></div>` +
+    `<div class="poi-nearby-row"><button data-act="nearby" title="Wohnmobil-Stellplätze (OpenStreetMap) im Umkreis von 25 km finden">🏕 Stellplätze im Umkreis (25 km)</button></div>` +
     `<div class="poi-dist">${stops.length ? "Entfernungen werden berechnet …" : "Noch keine Übernachtungsplätze."}</div>`;
   el.querySelector('[data-act="edit"]').onclick = () => openForm(poi);
   el.querySelector('[data-act="convert"]').onclick = () => convertKind(poi);
   el.querySelector('[data-act="del"]').onclick = () => deleteStop(poi.id);
+  el.querySelector('[data-act="nearby"]').onclick = (ev) => findCampsitesNearPoi(poi, ev.currentTarget);
   infoWindow.setContent(el);
   infoWindow.open(map, state.markers[poi.id]);
   infoOpenId = poi.id;
@@ -322,6 +331,128 @@ async function openPoiInfo(poi) {
     const box = el.querySelector(".poi-dist");
     if (box) box.textContent = "Entfernungen nicht verfügbar (offline?).";
   }
+}
+
+// ---- Umkreis-Stellplätze (OSM/Overpass) um einen POI ------------------------
+// Server-seitig proxied via /api/campsites-nearby (kein CORS, Overpass-Etikette
+// + Cache im Backend). Ergebnisse als eigene, klar unterscheidbare Pins (Raute,
+// violett) plus eine Leiste zum kompletten Ausblenden.
+function campsiteIcon() {
+  return {
+    path: "M 0,-9 9,0 0,9 -9,0 z",     // Raute -> deutlich anders als Kreise/Tropfen
+    fillColor: "#7c3aed", fillOpacity: 1,
+    strokeColor: "#ffffff", strokeWeight: 2, scale: 1.1,
+  };
+}
+
+function clearNearbyCampsites() {
+  nearbyMarkers.forEach((m) => m.setMap(null));
+  nearbyMarkers = [];
+  const bar = document.getElementById("nearbyBar");
+  if (bar) bar.remove();
+  if (infoWindow && infoOpenId === "campsite") { infoWindow.close(); infoOpenId = null; }
+}
+
+function showNearbyBar(count, poiName) {
+  let bar = document.getElementById("nearbyBar");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "nearbyBar";
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML =
+    `<span class="nearby-bar-text">🏕 ${count} Stellplätze im 25-km-Umkreis um „${escapeHtml(poiName)}"</span>` +
+    `<button class="nearby-bar-clear" title="Ergebnisse ausblenden">✕ ausblenden</button>`;
+  bar.querySelector(".nearby-bar-clear").onclick = clearNearbyCampsites;
+}
+
+// yes/no/… aus OSM lesbar machen
+function osmYesNo(v) {
+  if (v === "yes" || v === "designated") return "ja";
+  if (v === "no") return "nein";
+  return v;
+}
+function feeLabel(v) {
+  if (v === "yes") return "kostenpflichtig";
+  if (v === "no") return "kostenlos";
+  return v;
+}
+
+function campsitePopupDOM(site) {
+  const t = site.tags || {};
+  const el = document.createElement("div");
+  el.className = "popup campsite-popup";
+  const rows = [];
+  const street = [t["addr:street"], t["addr:housenumber"]].filter(Boolean).join(" ");
+  const city = [t["addr:postcode"], t["addr:city"]].filter(Boolean).join(" ");
+  const addr = [street, city].filter(Boolean).join(", ");
+  if (addr) rows.push(`📍 ${escapeHtml(addr)}`);
+  if (t.fee) rows.push(`💶 Gebühr: ${escapeHtml(feeLabel(t.fee))}`);
+  if (t.capacity) rows.push(`🚐 Stellplätze: ${escapeHtml(t.capacity)}`);
+  if (t.sanitary_dump_station) rows.push(`♻️ Ver-/Entsorgung: ${escapeHtml(osmYesNo(t.sanitary_dump_station))}`);
+  if (t.drinking_water) rows.push(`🚰 Trinkwasser: ${escapeHtml(osmYesNo(t.drinking_water))}`);
+  if (t.power_supply) rows.push(`🔌 Strom: ${escapeHtml(osmYesNo(t.power_supply))}`);
+  if (t.opening_hours) rows.push(`🕒 ${escapeHtml(t.opening_hours)}`);
+  if (t.operator) rows.push(`🏢 ${escapeHtml(t.operator)}`);
+  const phone = t.phone || t["contact:phone"];
+  if (phone) rows.push(`📞 <a href="tel:${encodeURIComponent(phone.trim())}">${escapeHtml(phone)}</a>`);
+  const web = t.website || t["contact:website"];
+  if (web) {
+    const href = /^https?:\/\//.test(web) ? web : `https://${web}`;
+    rows.push(`🔗 <a href="${encodeURI(href)}" target="_blank" rel="noopener">Website</a>`);
+  }
+  if (t.description) rows.push(escapeHtml(t.description));
+  const info = rows.length
+    ? `<div class="campsite-info">${rows.map((r) => `<div>${r}</div>`).join("")}</div>`
+    : `<div class="campsite-info"><em>Keine weiteren OSM-Angaben.</em></div>`;
+  el.innerHTML =
+    `<h4>${escapeHtml(site.name)} <span class="badge campsite">Stellplatz</span></h4>` +
+    info +
+    `<div class="nav-links">` +
+      `<a href="https://maps.apple.com/?daddr=${site.lat},${site.lng}" target="_blank" rel="noopener">Apple&nbsp;Maps</a>` +
+      `<a href="https://www.google.com/maps/dir/?api=1&destination=${site.lat},${site.lng}" target="_blank" rel="noopener">Google&nbsp;Maps</a>` +
+    `</div>` +
+    `<div class="edit-links"><button data-act="take-stop" title="Als Übernachtungsplatz übernehmen">🛏 Als Übernachtung</button></div>`;
+  el.querySelector('[data-act="take-stop"]').onclick = () =>
+    addSearchResult(site.name, site.lat, site.lng, "stop");
+  return el;
+}
+
+// Kern: Umkreissuche um FREIE Koordinaten (lat/lng). Wird sowohl vom POI-Button
+// als auch vom Kartenklick-Dialog genutzt (label = Ortsname für die Leiste).
+async function findCampsitesNear(lat, lng, label, btn) {
+  const restore = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "🏕 Suche läuft …"; }
+  clearNearbyCampsites();
+  try {
+    const d = await api.send("POST", "/api/campsites-nearby", { lat, lng });
+    const sites = d.campsites || [];
+    sites.forEach((s) => {
+      const marker = new google.maps.Marker({
+        position: { lat: s.lat, lng: s.lng }, map, title: s.name,
+        icon: campsiteIcon(), zIndex: 900,
+      });
+      marker.addListener("click", () => {
+        infoWindow.setContent(campsitePopupDOM(s));
+        infoWindow.open(map, marker);
+        infoOpenId = "campsite";
+      });
+      nearbyMarkers.push(marker);
+    });
+    showNearbyBar(sites.length, label || "diesem Ort");
+  } catch (e) {
+    // 502 = Overpass gerade nicht erreichbar / überlastet
+    alert(String(e.message).includes("502")
+      ? "Stellplatz-Suche gerade nicht verfügbar (OpenStreetMap/Overpass überlastet). Bitte kurz später erneut versuchen."
+      : "Stellplatz-Suche fehlgeschlagen: " + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = restore; }
+  }
+}
+
+// POI-Button: dünner Wrapper um die verallgemeinerte Umkreissuche.
+function findCampsitesNearPoi(poi, btn) {
+  return findCampsitesNear(poi.lat, poi.lng, poi.name, btn);
 }
 
 // ---- POI-Liste im Aufklappmenü ----------------------------------------------
@@ -658,6 +789,7 @@ function updatePanelHeader() {
 
 async function selectTrip(id) {
   state.tripId = id;
+  clearNearbyCampsites();   // Umkreis-Ergebnisse einer anderen Reise wegräumen
   await loadStops();
   renderTourMenu();
 }
@@ -887,8 +1019,9 @@ async function reverseGeocode(lat, lng) {
   }
 }
 
-// Rückfrage-Dialog mit editierbarem Namen -> Promise<string|null>
-// Liefert den (ggf. korrigierten) Namen bei "Ja", sonst null bei Abbruch.
+// Rückfrage-Dialog -> Promise<{name, kind}|{kind:"nearby"}|null>
+// "Ja" -> Speichern (kind stop|poi); der separate Button -> {kind:"nearby"}
+// (Umkreissuche, nichts speichern); Abbruch/Abbrechen -> null.
 function confirmAdd(name) {
   return new Promise((resolve) => {
     const modal = document.getElementById("confirmModal");
@@ -898,9 +1031,11 @@ function confirmAdd(name) {
     kindSel.value = "stop";
     const ok = document.getElementById("c_ok");
     const cancel = document.getElementById("c_cancel");
+    const nearby = document.getElementById("c_nearby");
     const done = (val) => {
       modal.classList.add("hidden");
       ok.onclick = null; cancel.onclick = null; input.onkeydown = null;
+      if (nearby) nearby.onclick = null;
       resolve(val);
     };
     ok.onclick = () => {
@@ -909,6 +1044,7 @@ function confirmAdd(name) {
       done({ name: v, kind: kindSel.value });
     };
     cancel.onclick = () => done(null);
+    if (nearby) nearby.onclick = () => done({ kind: "nearby" });
     input.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); ok.onclick(); } };
     modal.classList.remove("hidden");
   });
