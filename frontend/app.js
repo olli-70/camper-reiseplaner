@@ -146,10 +146,10 @@ async function onMapClick(e) {
   hintEl.textContent = HINT;
   const chosen = await confirmAdd(name);
   if (!chosen) return;
-  // Stellplätze im Umkreis: NICHTS speichern – dieselbe Overpass-Umkreissuche
-  // wie beim POI-Button, nur um die angeklickten Koordinaten herum.
-  if (chosen.kind === "campsites") {
-    findCampsitesNear(lat, lng, chosen.name, null);
+  // Separater Button „Stellplätze in der Nähe": NICHTS speichern – dieselbe
+  // Overpass-Umkreissuche wie beim POI-Button, um die angeklickten Koordinaten.
+  if (chosen.kind === "nearby") {
+    findCampsitesNear(lat, lng, name, null);
     return;
   }
   // Übernachtungsplatz -> volles Formular, damit die Reservierung direkt
@@ -1019,8 +1019,9 @@ async function reverseGeocode(lat, lng) {
   }
 }
 
-// Rückfrage-Dialog mit editierbarem Namen -> Promise<string|null>
-// Liefert den (ggf. korrigierten) Namen bei "Ja", sonst null bei Abbruch.
+// Rückfrage-Dialog -> Promise<{name, kind}|{kind:"nearby"}|null>
+// "Ja" -> Speichern (kind stop|poi); der separate Button -> {kind:"nearby"}
+// (Umkreissuche, nichts speichern); Abbruch/Abbrechen -> null.
 function confirmAdd(name) {
   return new Promise((resolve) => {
     const modal = document.getElementById("confirmModal");
@@ -1030,18 +1031,20 @@ function confirmAdd(name) {
     kindSel.value = "stop";
     const ok = document.getElementById("c_ok");
     const cancel = document.getElementById("c_cancel");
+    const nearby = document.getElementById("c_nearby");
     const done = (val) => {
       modal.classList.add("hidden");
       ok.onclick = null; cancel.onclick = null; input.onkeydown = null;
+      if (nearby) nearby.onclick = null;
       resolve(val);
     };
     ok.onclick = () => {
       const v = input.value.trim();
-      // Bei „Stellplätze im Umkreis" wird nichts gespeichert -> Name egal.
-      if (!v && kindSel.value !== "campsites") { input.focus(); return; }
+      if (!v) { input.focus(); return; } // leerer Name nicht erlaubt
       done({ name: v, kind: kindSel.value });
     };
     cancel.onclick = () => done(null);
+    if (nearby) nearby.onclick = () => done({ kind: "nearby" });
     input.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); ok.onclick(); } };
     modal.classList.remove("hidden");
   });
