@@ -37,9 +37,38 @@ def _migrate() -> None:
                     )
 
 
+def _backfill_datum_to_an() -> None:
+    """Einmaliger, datenschonender Backfill nach Wegfall des Einzelfelds `datum`:
+
+    Übernimmt einen bestehenden `datum`-Wert (Tag) als „An"-Zeitpunkt
+    (reserviert_von, Tagesbeginn 00:00), sofern für die Zeile noch KEIN An-Wert
+    gesetzt ist. Idempotent (läuft danach ins Leere, weil reserviert_von belegt
+    ist) und nicht-destruktiv: Die alte `datum`-Spalte bleibt in der Tabelle
+    erhalten (SQLite droppt keine Spalten), wird vom Modell nur nicht mehr
+    genutzt. So gehen keine bestehenden Termine verloren.
+
+    Datumsformat mit Leerzeichen-Trenner ("YYYY-MM-DD HH:MM:SS"), damit
+    SQLAlchemy den Wert beim Lesen wieder als datetime parst.
+    """
+    with engine.begin() as conn:
+        cols = {row[1] for row in conn.exec_driver_sql(
+            'PRAGMA table_info("stop")').fetchall()}
+        if "datum" not in cols:
+            return  # frische DB ohne Alt-Spalte -> nichts zu tun
+        conn.exec_driver_sql(
+            """
+            UPDATE stop
+               SET reserviert_von = datum || ' 00:00:00'
+             WHERE (reserviert_von IS NULL OR reserviert_von = '')
+               AND datum IS NOT NULL AND datum != ''
+            """
+        )
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _migrate()
+    _backfill_datum_to_an()
 
 
 def get_session():

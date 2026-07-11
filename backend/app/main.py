@@ -411,9 +411,9 @@ def _stops_csv(session: Session, trips: List[Trip]) -> str:
     buf.write("﻿")  # UTF-8-BOM
     writer = csv.writer(buf, delimiter=";")
     writer.writerow([
-        "Reise", "Art", "Name", "Status", "Datum", "Notiz",
+        "Reise", "Art", "Name", "Status", "Notiz",
         "Breitengrad", "Längengrad", "In Route", "Reihenfolge",
-        "An (Ankunft / POI-Zeit)", "Ab (Abfahrt)", "Reserviert",
+        "An (Ankunft)", "Ab (Abfahrt)", "Reserviert",
     ])
     for trip in trips:
         stops = session.exec(
@@ -425,7 +425,6 @@ def _stops_csv(session: Session, trips: List[Trip]) -> str:
                 art.get(s.kind, s.kind),
                 s.name,
                 s.status,
-                s.datum.isoformat() if s.datum else "",
                 s.notiz or "",
                 s.lat,
                 s.lng,

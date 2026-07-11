@@ -178,7 +178,6 @@ const fmtDMHM = (v) => {
 function stopPopupDOM(s) {
   const el = document.createElement("div");
   el.className = "popup";
-  const datum = s.datum ? ` · ${s.datum}` : "";
   const times = (s.reserviert_von || s.reserviert_bis)
     ? `An: ${fmtDT(s.reserviert_von) || "?"} · Ab: ${fmtDT(s.reserviert_bis) || "?"}`
     : "";
@@ -187,7 +186,7 @@ function stopPopupDOM(s) {
     : "";
   el.innerHTML = `
     <h4>${escapeHtml(s.name)} <span class="badge ${s.status}">${s.status}</span></h4>
-    <div>${escapeHtml(s.notiz || "")}${datum}</div>
+    <div>${escapeHtml(s.notiz || "")}</div>
     ${resInfo}
     <div class="nav-links">
       <a href="${appleLink(s)}" target="_blank" rel="noopener">Apple&nbsp;Maps</a>
@@ -290,7 +289,10 @@ async function openPoiInfo(poi) {
   el.className = "popup";
   const stops = state.stops;
   const noteHtml = poi.notiz ? `<div class="poi-note">${escapeHtml(poi.notiz)}</div>` : "";
-  const timeHtml = poi.reserviert_von ? `<div class="poi-time">🕒 ${fmtDT(poi.reserviert_von)}</div>` : "";
+  const poiTimes = (poi.reserviert_von || poi.reserviert_bis)
+    ? `An: ${fmtDT(poi.reserviert_von) || "?"} · Ab: ${fmtDT(poi.reserviert_bis) || "?"}`
+    : "";
+  const timeHtml = poiTimes ? `<div class="poi-time">🕒 ${poiTimes}</div>` : "";
   el.innerHTML =
     `<h4>${escapeHtml(poi.name)} <span class="badge poi">Punkt</span></h4>` + timeHtml + noteHtml +
     `<div class="edit-links"><button data-act="edit">Bearbeiten / Notiz</button><button data-act="convert" title="In einen Übernachtungsplatz umwandeln">→ Übernachtung</button><button data-act="del">Löschen</button></div>` +
@@ -335,7 +337,10 @@ function renderPoiList() {
     const li = document.createElement("li");
     li.className = "poi-item";
     const note = p.notiz ? `<div class="poi-note">${escapeHtml(p.notiz)}</div>` : "";
-    const time = p.reserviert_von ? `<div class="poi-time">🕒 ${fmtDMHM(p.reserviert_von)}</div>` : "";
+    const pTimes = (p.reserviert_von || p.reserviert_bis)
+      ? `An: ${fmtDMHM(p.reserviert_von) || "?"} · Ab: ${fmtDMHM(p.reserviert_bis) || "?"}`
+      : "";
+    const time = pTimes ? `<div class="poi-time">🕒 ${pTimes}</div>` : "";
     li.innerHTML =
       `<span class="poi-name">${p.in_route ? "🚏" : "📍"} ${escapeHtml(p.name)}</span>` +
       `<span class="poi-actions">` +
@@ -389,12 +394,12 @@ function renderList() {
     const badge = isPoi
       ? `<span class="badge poi">Wegpunkt</span>`
       : `<span class="badge ${s.status}">${s.status}</span>`;
+    // An/Ab identisch für Übernachtungsplätze UND POIs (Wegpunkte).
     let resLine = "";
-    if (isPoi) {
-      resLine = s.reserviert_von ? `<span class="stop-res">🕒 ${fmtDMHM(s.reserviert_von)}</span>` : "";
-    } else if (s.reserviert_von || s.reserviert_bis) {
+    if (s.reserviert_von || s.reserviert_bis) {
       const lock = s.reserviert ? "🔒 " : "";
-      resLine = `<span class="stop-res">${lock}An: ${fmtDMHM(s.reserviert_von) || "?"} · ab: ${fmtDMHM(s.reserviert_bis) || "?"}</span>`;
+      const icon = isPoi ? "🕒 " : "";
+      resLine = `<span class="stop-res">${lock}${icon}An: ${fmtDMHM(s.reserviert_von) || "?"} · ab: ${fmtDMHM(s.reserviert_bis) || "?"}</span>`;
     }
     const handle = isLocked() ? "" : `<span class="drag-handle" title="Ziehen zum Sortieren">⠿</span>`;
     li.innerHTML =
@@ -707,16 +712,16 @@ async function loadStops() {
 //   poi: true    -> Feld auch bei POIs zeigen (sonst nur bei Übernachtungen)
 //   poiLabel     -> abweichende Feldbeschriftung, wenn es ein POI ist
 // Hinweis: reserviert_von/-bis = An/Ab-Zeiten und sind UNABHÄNGIG von der
-// „reserviert"-Checkbox editierbar. Bei einem POI ist reserviert_von der
-// „Datum & Uhrzeit"-Zeitpunkt (reserviert_bis/-Flag entfallen dort).
+// „reserviert"-Checkbox editierbar. Sie gelten IDENTISCH für Übernachtungs-
+// plätze UND POIs (beide poi:true). reserviert_von (An) dient bei POIs zudem
+// als Sortierschlüssel für die zeitliche Routen-Einordnung.
 const STOP_FIELDS = [
   { key: "name",           label: "Name",           type: "text",     required: true, poi: true },
   { key: "status",         label: "Status",         type: "select",
     options: ["geplant", "reserviert", "besucht"], default: "geplant" },
-  { key: "reserviert_von", label: "An (Ankunft)",   type: "datetime", poi: true, poiLabel: "Datum & Uhrzeit" },
-  { key: "reserviert_bis", label: "Ab (Abfahrt)",   type: "datetime" },
+  { key: "reserviert_von", label: "An (Ankunft)",   type: "datetime", poi: true },
+  { key: "reserviert_bis", label: "Ab (Abfahrt)",   type: "datetime", poi: true },
   { key: "reserviert",     label: "reserviert / gebucht", type: "checkbox" },
-  { key: "datum",          label: "Datum (Tag)",    type: "date" },
   { key: "notiz",          label: "Notiz",          type: "textarea", poi: true },
 ];
 
