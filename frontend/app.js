@@ -146,6 +146,12 @@ async function onMapClick(e) {
   hintEl.textContent = HINT;
   const chosen = await confirmAdd(name);
   if (!chosen) return;
+  // Stellplätze im Umkreis: NICHTS speichern – dieselbe Overpass-Umkreissuche
+  // wie beim POI-Button, nur um die angeklickten Koordinaten herum.
+  if (chosen.kind === "campsites") {
+    findCampsitesNear(lat, lng, chosen.name, null);
+    return;
+  }
   // Übernachtungsplatz -> volles Formular, damit die Reservierung direkt
   // beim Anlegen erfasst werden kann. Punkt (POI) -> Sofortanlage wie bisher.
   if (chosen.kind === "stop") {
@@ -412,17 +418,15 @@ function campsitePopupDOM(site) {
   return el;
 }
 
-async function findCampsitesNearPoi(poi, btn) {
-  const label = btn ? btn.textContent : "";
+// Kern: Umkreissuche um FREIE Koordinaten (lat/lng). Wird sowohl vom POI-Button
+// als auch vom Kartenklick-Dialog genutzt (label = Ortsname für die Leiste).
+async function findCampsitesNear(lat, lng, label, btn) {
+  const restore = btn ? btn.textContent : "";
   if (btn) { btn.disabled = true; btn.textContent = "🏕 Suche läuft …"; }
   clearNearbyCampsites();
   try {
-    const d = await api.send("POST", "/api/campsites-nearby", { lat: poi.lat, lng: poi.lng });
+    const d = await api.send("POST", "/api/campsites-nearby", { lat, lng });
     const sites = d.campsites || [];
-    if (!sites.length) {
-      showNearbyBar(0, poi.name);
-      return;
-    }
     sites.forEach((s) => {
       const marker = new google.maps.Marker({
         position: { lat: s.lat, lng: s.lng }, map, title: s.name,
@@ -435,15 +439,20 @@ async function findCampsitesNearPoi(poi, btn) {
       });
       nearbyMarkers.push(marker);
     });
-    showNearbyBar(sites.length, poi.name);
+    showNearbyBar(sites.length, label || "diesem Ort");
   } catch (e) {
     // 502 = Overpass gerade nicht erreichbar / überlastet
     alert(String(e.message).includes("502")
       ? "Stellplatz-Suche gerade nicht verfügbar (OpenStreetMap/Overpass überlastet). Bitte kurz später erneut versuchen."
       : "Stellplatz-Suche fehlgeschlagen: " + e.message);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = label; }
+    if (btn) { btn.disabled = false; btn.textContent = restore; }
   }
+}
+
+// POI-Button: dünner Wrapper um die verallgemeinerte Umkreissuche.
+function findCampsitesNearPoi(poi, btn) {
+  return findCampsitesNear(poi.lat, poi.lng, poi.name, btn);
 }
 
 // ---- POI-Liste im Aufklappmenü ----------------------------------------------
@@ -1028,7 +1037,8 @@ function confirmAdd(name) {
     };
     ok.onclick = () => {
       const v = input.value.trim();
-      if (!v) { input.focus(); return; } // leerer Name nicht erlaubt
+      // Bei „Stellplätze im Umkreis" wird nichts gespeichert -> Name egal.
+      if (!v && kindSel.value !== "campsites") { input.focus(); return; }
       done({ name: v, kind: kindSel.value });
     };
     cancel.onclick = () => done(null);

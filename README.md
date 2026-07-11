@@ -130,6 +130,10 @@ in `.env` änderbar), mit dem Admin-Konto anmelden.
   Website) und bietet **„🛏 Als Übernachtung"** übernehmen. Eine schwebende Leiste
   **„✕ ausblenden"** räumt alle Treffer mit einem Klick wieder weg. Die Abfrage läuft
   **server-seitig** (`/api/campsites-nearby`, kein CORS, Overpass-Etikette + Cache).
+  Dieselbe Umkreissuche gibt es auch **direkt beim Kartenklick**: im „Ort
+  hinzufügen?"-Dialog neben Übernachtungsplatz/POI die Option
+  **„🏕 Stellplätze im Umkreis (25 km)"** – sucht um den angeklickten Punkt, ohne
+  ihn vorher zu speichern.
 - **„in Route"**-Schalter je POI: nimmt den Punkt als **Wegpunkt** in die Route auf
   (erscheint sortierbar in der Liste 🚏, die Linie führt hindurch). Ohne den
   Schalter bleibt er nur ein Punkt auf der Karte. Hat der POI ein **An**-Datum/-Uhrzeit,
