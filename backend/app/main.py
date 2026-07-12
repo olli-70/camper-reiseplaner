@@ -159,10 +159,25 @@ async def lifespan(app: FastAPI):
     yield
 
 
+def _require_session_secret() -> str:
+    """S2 – Fail-closed: Ohne ausreichend starkes SESSION_SECRET startet die App
+    NICHT. Ein leeres/kurzes Cookie-Signaturgeheimnis erlaubt sonst gefälschte
+    Sessions (uid=Admin). Kein unsicherer Default, kein Weiterlaufen."""
+    secret = os.getenv("SESSION_SECRET", "")
+    if len(secret) < 32:
+        raise RuntimeError(
+            "SESSION_SECRET fehlt oder ist zu kurz (min. 32 Zeichen). Start "
+            "abgebrochen (Sicherheit): ohne starkes Signaturgeheimnis wären "
+            "Sessions fälschbar. Bitte Vault-Feld "
+            "secret/camper-reiseplaner:session_secret setzen (>= 32 Zeichen)."
+        )
+    return secret
+
+
 app = FastAPI(title="Camper-Reiseplaner", version=__version__, lifespan=lifespan)
 app.add_middleware(
     SessionMiddleware,
-    secret_key=os.getenv("SESSION_SECRET", "dev-insecure-change-me"),
+    secret_key=_require_session_secret(),
     same_site="lax",
     https_only=os.getenv("COOKIE_SECURE", "1") != "0",
     max_age=60 * 60 * 24 * 30,  # 30 Tage
@@ -186,19 +201,42 @@ def _owned_trip(session: Session, trip_id: int, user: User) -> Trip:
     return trip
 
 
-# ---- Login-Ratenbegrenzung (einfach, pro IP) --------------------------------
+# ---- Ratenbegrenzung (Sliding-Window, in-memory pro Prozess) ----------------
+# WICHTIG (S1): Die echte Client-IP kommt nur korrekt an, wenn uvicorn mit
+# --proxy-headers + --forwarded-allow-ips läuft (siehe Dockerfile). Hinter dem
+# Reverse-Proxy (Caddy/Traefik) wäre request.client.host sonst die Proxy-IP ->
+# ein gemeinsamer Bucket (Schutz wirkungslos + Login-DoS).
 _login_hits: dict = {}
-_RL_MAX = int(os.getenv("LOGIN_RATELIMIT", "20"))  # Versuche pro 5-Min-Fenster/IP
+_proxy_hits: dict = {}
+_RL_MAX = int(os.getenv("LOGIN_RATELIMIT", "20"))        # Login-Versuche / 5-Min / IP
+_PROXY_RL_MAX = int(os.getenv("PROXY_RATELIMIT", "60"))  # bezahlte Maps-Calls / Min / User
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "?"
+
+
+def _hit_limit(store: dict, key: str, max_hits: int, window: int, msg: str) -> None:
+    now = time.time()
+    hits = [t for t in store.get(key, []) if now - t < window]
+    if len(hits) >= max_hits:
+        raise HTTPException(429, msg)
+    hits.append(now)
+    store[key] = hits
 
 
 def _rate_limit(request: Request) -> None:
-    ip = request.client.host if request.client else "?"
-    now = time.time()
-    hits = [t for t in _login_hits.get(ip, []) if now - t < 300]  # 5-Min-Fenster
-    if len(hits) >= _RL_MAX:
-        raise HTTPException(429, "Zu viele Versuche, bitte kurz warten.")
-    hits.append(now)
-    _login_hits[ip] = hits
+    """Login-/Passwort-Endpoints: pro echter Client-IP (S1)."""
+    _hit_limit(_login_hits, _client_ip(request), _RL_MAX, 300,
+               "Zu viele Versuche, bitte kurz warten.")
+
+
+def _proxy_rate_limit(request: Request, user: "User") -> None:
+    """S3 – bezahlte Google-Proxy-Endpoints: pro Nutzer (Fallback IP) / Minute,
+    damit ein Member/gestohlene Session keine unbegrenzten Kosten auslöst."""
+    key = f"u:{user.id}" if getattr(user, "id", None) else f"ip:{_client_ip(request)}"
+    _hit_limit(_proxy_hits, key, _PROXY_RL_MAX, 60,
+               "Zu viele Karten-Anfragen, bitte kurz warten.")
 
 
 def _validate_status(status: str) -> None:
@@ -314,8 +352,10 @@ async def _gget(url: str, params: dict) -> dict:
 
 
 @app.post("/api/directions")
-async def directions(payload: dict, user: User = Depends(get_current_user)) -> dict:
+async def directions(payload: dict, request: Request,
+                     user: User = Depends(get_current_user)) -> dict:
     """Etappen-Routing (eine Etappe: origin, destination, waypoints[])."""
+    _proxy_rate_limit(request, user)   # S3: Kosten-/Abuse-Schutz
     if not _GKEY:
         raise HTTPException(503, "Kein Google-Key konfiguriert")
     o, d = payload.get("origin"), payload.get("destination")
@@ -342,16 +382,24 @@ async def directions(payload: dict, user: User = Depends(get_current_user)) -> d
 
 
 @app.post("/api/places")
-async def places(payload: dict, user: User = Depends(get_current_user)) -> dict:
+async def places(payload: dict, request: Request,
+                 user: User = Depends(get_current_user)) -> dict:
     """Places-Text-Suche; mit `points` (>=2) -> Suche entlang der Route."""
+    _proxy_rate_limit(request, user)   # S3: Kosten-/Abuse-Schutz
     if not _GKEY:
         raise HTTPException(503, "Kein Google-Key konfiguriert")
     q = (payload.get("textQuery") or "").strip()
     if not q:
         return {"places": []}
+    # S3: maxResultCount hart auf 1..20 deckeln (ungültige Eingaben -> Default 8).
+    try:
+        max_results = int(payload.get("maxResultCount", 8))
+    except (TypeError, ValueError):
+        max_results = 8
+    max_results = max(1, min(max_results, 20))
     body = {
         "textQuery": q, "languageCode": "de",
-        "maxResultCount": int(payload.get("maxResultCount", 8)),
+        "maxResultCount": max_results,
     }
     pts = payload.get("points")
     if pts and len(pts) >= 2:
@@ -482,8 +530,10 @@ async def campsites_nearby(payload: dict, user: User = Depends(get_current_user)
 
 
 @app.get("/api/geocode")
-async def geocode(q: str, user: User = Depends(get_current_user)) -> dict:
+async def geocode(q: str, request: Request,
+                  user: User = Depends(get_current_user)) -> dict:
     """Adresse -> Koordinaten (für Ortssuche + Tour-Start/Ziel)."""
+    _proxy_rate_limit(request, user)   # S3: Kosten-/Abuse-Schutz
     if not _GKEY:
         raise HTTPException(503, "Kein Google-Key konfiguriert")
     data = await _gget(
