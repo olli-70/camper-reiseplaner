@@ -79,6 +79,9 @@ function initMap() {
     },
     streetViewControl: false,
     fullscreenControl: false,
+    // Maßstabsleiste (unten, dezent) – hilft, Entfernungen zwischen Punkten
+    // abzuschätzen. Einheit richtet sich nach der Locale (DE = metrisch, km/m).
+    scaleControl: true,
     clickableIcons: false,
   });
   infoWindow = new google.maps.InfoWindow();
