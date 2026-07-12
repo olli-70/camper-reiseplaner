@@ -6,7 +6,7 @@ import tempfile
 _fd, _path = tempfile.mkstemp(suffix=".db")
 os.close(_fd)
 os.environ["CAMPER_DB"] = _path
-os.environ["SESSION_SECRET"] = "testsecret"
+os.environ["SESSION_SECRET"] = "test-session-secret-0123456789abcdef"  # >=32 (S2-Guard)
 os.environ["COOKIE_SECURE"] = "0"  # TestClient läuft über http
 os.environ["LOGIN_RATELIMIT"] = "1000"  # im Test nicht limitieren
 CODES = {"a@test.de": "code-a", "b@test.de": "code-b", "c@test.de": "code-c"}
