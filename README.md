@@ -143,7 +143,8 @@ in `.env` änderbar), mit dem Admin-Konto anmelden.
   **Übernachtungsplatz** verwandelt (und umgekehrt).
 
 **Karte & PWA**
-- Google Maps (Karte/Satellit/Gelände), „Mein Standort"-Button.
+- Google Maps (Karte/Satellit/Gelände), „Mein Standort"-Button, **Maßstabsleiste**
+  (dezent unten, metrisch – Entfernungen zwischen Punkten selbst abschätzbar).
 - **Installierbar** (iPhone „Zum Home-Bildschirm", Desktop-Chrome), Offline-Lese-
   Cache und nahtloses Auto-Update nach jedem Deploy.
 
