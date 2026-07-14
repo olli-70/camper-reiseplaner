@@ -18,6 +18,9 @@ class User(SQLModel, table=True):
     password_hash: str
     is_admin: bool = False
     used_code: Optional[str] = None  # sha256 des bereits verbrauchten Einmalcodes
+    # S6: Session-Widerruf. Wird in die Session mitsigniert; bei Passwortwechsel
+    # oder "überall abmelden" erhöht -> alle alten Sessions werden ungültig.
+    token_version: int = Field(default=0)
     created_at: datetime = Field(default_factory=_now)
 
 

@@ -76,6 +76,12 @@ def verify_password(pw: str, hashed: str) -> bool:
         return False
 
 
+# S7: Dummy-Hash, damit der Login auch bei unbekannter/nicht-freigeschalteter
+# E-Mail EINE echte bcrypt-Prüfung durchläuft -> konstante Zeit, kein Timing-/
+# Status-Orakel für Account-Enumeration.
+_DUMMY_HASH = bcrypt.hashpw(b"invalid-user-timing-equalizer", bcrypt.gensalt()).decode("utf-8")
+
+
 def _seed_admin() -> None:
     """Admin-Konto aus ENV pflegen: Passwort = Vault (source of truth); wenn die
     Admin-E-Mail sich geändert hat, das bestehende Admin-Konto UMBENENNEN (Reisen
@@ -180,8 +186,51 @@ app.add_middleware(
     secret_key=_require_session_secret(),
     same_site="lax",
     https_only=os.getenv("COOKIE_SECURE", "1") != "0",
-    max_age=60 * 60 * 24 * 30,  # 30 Tage
+    max_age=60 * 60 * 24 * 7,  # S6: 7 Tage (vorher 30) – kürzeres Zeitfenster
 )
+
+
+# ---- S4: Security-Header + Content-Security-Policy ---------------------------
+# CSP ist bewusst so gebaut, dass Google Maps JS + PWA weiter funktionieren:
+#  - script-src erlaubt Google-Maps-Loader (+ 'unsafe-eval' für Maps-Vector/WebGL),
+#    KEIN 'unsafe-inline' (index.html lädt Scripts nur via src, kein Inline-JS).
+#  - style-src 'unsafe-inline': Google Maps injiziert massenhaft Inline-Styles.
+#  - connect-src listet ALLE Browser-Direktziele (Google + OSM/OSRM/Overpass/
+#    Nominatim). Enger möglich, sobald diese Calls serverseitig proxied sind (C4).
+#  - img-src erlaubt Google-Tiles (data:/blob: für Marker/Canvas).
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-eval' https://maps.googleapis.com https://maps.gstatic.com; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' data: https://fonts.gstatic.com; "
+    "img-src 'self' data: blob: https://maps.googleapis.com https://maps.gstatic.com "
+    "https://*.googleapis.com https://*.gstatic.com https://*.google.com https://*.ggpht.com; "
+    "connect-src 'self' https://maps.googleapis.com https://maps.gstatic.com https://*.googleapis.com "
+    "https://nominatim.openstreetmap.org https://router.project-osrm.org "
+    "https://overpass-api.de https://overpass.kumi.systems https://overpass.private.coffee; "
+    "worker-src 'self' blob:; "
+    "frame-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
+)
+_SECURITY_HEADERS = {
+    "Content-Security-Policy": _CSP,
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "geolocation=(self), camera=(), microphone=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for k, v in _SECURITY_HEADERS.items():
+        response.headers.setdefault(k, v)
+    return response
 
 
 def get_current_user(request: Request, session: Session = Depends(get_session)) -> User:
@@ -191,6 +240,12 @@ def get_current_user(request: Request, session: Session = Depends(get_session)) 
     if not user or not _allowed(user.email):
         request.session.clear()
         raise HTTPException(401, "Nicht angemeldet")
+    # S6: Session-Widerruf – die in der Session signierte token_version muss zur
+    # aktuellen passen. Nach Passwortwechsel / "überall abmelden" ist sie erhöht
+    # -> alte Cookies gelten nicht mehr (fehlt sie ganz = Alt-Session vor S6).
+    if request.session.get("tv") != (user.token_version or 0):
+        request.session.clear()
+        raise HTTPException(401, "Sitzung abgelaufen – bitte neu anmelden.")
     return user
 
 
@@ -286,12 +341,14 @@ def set_password(payload: dict, request: Request, session: Session = Depends(get
     if user:
         user.password_hash = hash_password(pw)
         user.used_code = ch
+        user.token_version = (user.token_version or 0) + 1  # S6: alte Sessions raus
     else:
         user = User(email=email, password_hash=hash_password(pw), used_code=ch)
         session.add(user)
     session.commit()
     session.refresh(user)
     request.session["uid"] = user.id
+    request.session["tv"] = user.token_version or 0  # S6
     return {"email": user.email, "is_admin": user.is_admin}
 
 
@@ -300,17 +357,33 @@ def login(payload: dict, request: Request, session: Session = Depends(get_sessio
     _rate_limit(request)
     email = (payload.get("email") or "").strip().lower()
     pw = payload.get("password") or ""
-    if not _allowed(email):
-        raise HTTPException(403, "Diese E-Mail ist nicht freigeschaltet.")
-    user = session.exec(select(User).where(User.email == email)).first()
-    if not user or not verify_password(pw, user.password_hash):
+    # S7: keine Account-Enumeration – ob E-Mail nicht freigeschaltet, Nutzer
+    # unbekannt oder Passwort falsch: IMMER dieselbe 401-Antwort UND genau eine
+    # bcrypt-Prüfung (gegen Dummy-Hash, wenn kein Nutzer) für konstante Zeit.
+    user = None
+    if _allowed(email):
+        user = session.exec(select(User).where(User.email == email)).first()
+    ok = verify_password(pw, user.password_hash) if user else verify_password(pw, _DUMMY_HASH)
+    if not user or not ok:
         raise HTTPException(401, "E-Mail oder Passwort falsch.")
     request.session["uid"] = user.id
+    request.session["tv"] = user.token_version or 0  # S6
     return {"email": user.email, "is_admin": user.is_admin}
 
 
 @app.post("/api/auth/logout", status_code=204)
 def logout(request: Request):
+    request.session.clear()
+
+
+@app.post("/api/auth/logout-all", status_code=204)
+def logout_all(request: Request, session: Session = Depends(get_session),
+               user: User = Depends(get_current_user)):
+    """S6: 'überall abmelden' – token_version erhöhen -> ALLE bestehenden Sessions
+    (inkl. dieser) werden ungültig. Widerruf eines evtl. gestohlenen Cookies."""
+    user.token_version = (user.token_version or 0) + 1
+    session.add(user)
+    session.commit()
     request.session.clear()
 
 

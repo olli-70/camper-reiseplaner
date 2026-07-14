@@ -9,7 +9,8 @@ os.environ["CAMPER_DB"] = _path
 os.environ["SESSION_SECRET"] = "test-session-secret-0123456789abcdef"  # >=32 (S2-Guard)
 os.environ["COOKIE_SECURE"] = "0"  # TestClient läuft über http
 os.environ["LOGIN_RATELIMIT"] = "1000"  # im Test nicht limitieren
-CODES = {"a@test.de": "code-a", "b@test.de": "code-b", "c@test.de": "code-c"}
+CODES = {"a@test.de": "code-a", "b@test.de": "code-b", "c@test.de": "code-c",
+         "d@test.de": "code-d"}  # d nur für den Session-Revocation-Test (S6)
 _MEMBERS = [{"email": e, "code": c} for e, c in CODES.items()]
 os.environ["MEMBERS"] = json.dumps(_MEMBERS)
 
@@ -89,10 +90,17 @@ def test_login_and_me():
 
 
 def test_login_only_listed_emails():
-    # E-Mail nicht in der member-Liste -> 403, egal welches Passwort
-    assert TestClient(app).post("/api/auth/login",
-                                json={"email": "fremd@test.de", "password": "whatever8"}
-                                ).status_code == 403
+    # S7: keine Account-Enumeration – nicht freigeschaltete E-Mail liefert dieselbe
+    # 401-Antwort wie "falsches Passwort" (nicht 403), damit man Member nicht per
+    # Statuscode unterscheiden kann.
+    r_unlisted = TestClient(app).post(
+        "/api/auth/login", json={"email": "fremd@test.de", "password": "whatever8"})
+    r_wrongpw = TestClient(app).post(
+        "/api/auth/login", json={"email": "a@test.de", "password": "totally-wrong"})
+    assert r_unlisted.status_code == 401
+    assert r_wrongpw.status_code == 401
+    # Identische Fehlermeldung (kein Text-Orakel)
+    assert r_unlisted.json() == r_wrongpw.json()
 
 
 def test_isolation_between_accounts():
@@ -345,3 +353,31 @@ def test_campsites_nearby_overpass_down(monkeypatch):
     monkeypatch.setattr(main_mod, "_overpass_query", boom)
     r = client.post("/api/campsites-nearby", json={"lat": 40.0, "lng": 9.0})
     assert r.status_code == 502
+
+
+# ---- S4: Security-Header / CSP ----------------------------------------------
+def test_security_headers_present():
+    r = TestClient(app).get("/api/health")
+    h = r.headers
+    assert "content-security-policy" in h
+    csp = h["content-security-policy"]
+    assert "frame-ancestors 'none'" in csp
+    assert "https://maps.googleapis.com" in csp          # Karte darf laden
+    assert "https://nominatim.openstreetmap.org" in csp  # Ortssuche (connect-src)
+    assert h.get("x-content-type-options") == "nosniff"
+    assert h.get("x-frame-options") == "DENY"
+    assert "referrer-policy" in h
+
+
+# ---- S6: Session-Widerruf über logout-all -----------------------------------
+def test_logout_all_revokes_other_sessions():
+    # zwei Sitzungen desselben Nutzers (d@test.de, nur hier verwendet)
+    c1 = _client("d@test.de")                     # set-password -> Session A
+    c2 = TestClient(app)
+    assert c2.post("/api/auth/login",
+                   json={"email": "d@test.de", "password": "password1"}).status_code == 200
+    assert c1.get("/api/auth/me").status_code == 200
+    assert c2.get("/api/auth/me").status_code == 200
+    # c2 meldet sich "überall" ab -> token_version++ -> c1s Cookie wird ungültig
+    assert c2.post("/api/auth/logout-all").status_code == 204
+    assert c1.get("/api/auth/me").status_code == 401
