@@ -279,7 +279,7 @@ def test_trip_and_stop_lifecycle():
 # ---- Umkreis-Stellplätze (OSM/Overpass, server-seitig proxied) ---------------
 # Aufgezeichneter Overpass-Response (node + way mit center + unbrauchbares
 # Element) -> wir mocken _overpass_query, damit im Test NIE echt Overpass läuft.
-import app.main as main_mod  # noqa: E402
+import app.routers.campsites as campsites_mod  # noqa: E402  (C1: _overpass_query lebt jetzt hier)
 from fastapi import HTTPException  # noqa: E402
 
 _RECORDED_OVERPASS = {
@@ -308,7 +308,7 @@ def test_campsites_nearby_parses_overpass(monkeypatch):
         assert "out center" in query            # Center für ways/relations
         return _RECORDED_OVERPASS
 
-    monkeypatch.setattr(main_mod, "_overpass_query", fake_overpass)
+    monkeypatch.setattr(campsites_mod, "_overpass_query", fake_overpass)
     r = client.post("/api/campsites-nearby", json={"lat": 52.51, "lng": 13.41})
     assert r.status_code == 200, r.text
     body = r.json()
@@ -332,7 +332,7 @@ def test_campsites_nearby_radius_clamped(monkeypatch):
         captured["q"] = query
         return {"elements": []}
 
-    monkeypatch.setattr(main_mod, "_overpass_query", fake_overpass)
+    monkeypatch.setattr(campsites_mod, "_overpass_query", fake_overpass)
     r = client.post("/api/campsites-nearby",
                     json={"lat": 48.1, "lng": 11.6, "radius": 999999})
     assert r.status_code == 200
@@ -350,7 +350,7 @@ def test_campsites_nearby_overpass_down(monkeypatch):
     async def boom(query):
         raise HTTPException(502, "Overpass nicht erreichbar")
 
-    monkeypatch.setattr(main_mod, "_overpass_query", boom)
+    monkeypatch.setattr(campsites_mod, "_overpass_query", boom)
     r = client.post("/api/campsites-nearby", json={"lat": 40.0, "lng": 9.0})
     assert r.status_code == 502
 
