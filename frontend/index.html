@@ -142,7 +142,9 @@
     </div>
   </div>
 
-  <script src="https://unpkg.com/sortablejs@1.15.6/Sortable.min.js"></script>
+  <!-- S4: sortablejs selbst gehostet (kein unpkg-CDN mehr) -> keine Supply-Chain-
+       Abhängigkeit, same-origin (kein SRI nötig), CSP script-src bleibt eng. -->
+  <script src="/vendor/Sortable.min.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
