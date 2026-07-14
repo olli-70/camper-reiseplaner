@@ -1,6 +1,6 @@
 // Service Worker – Offline-Read-Cache (Ansehen offline, Bearbeiten nur online).
 // Hinweis: Die Google-Maps-Karte selbst braucht Netz (kein Offline-Kartenbild).
-const CACHE = "camper-v59";
+const CACHE = "camper-v60";
 const SHELL = [
   "/",
   "/index.html",
@@ -9,7 +9,7 @@ const SHELL = [
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
-  "https://unpkg.com/sortablejs@1.15.6/Sortable.min.js",
+  "/vendor/Sortable.min.js",   // S4: lokal statt unpkg-CDN
 ];
 
 self.addEventListener("install", (e) => {
@@ -30,18 +30,10 @@ self.addEventListener("fetch", (e) => {
 
   const url = new URL(req.url);
 
-  if (url.pathname.startsWith("/api/")) {
-    // Netzwerk zuerst; nur ERFOLGREICHE Antworten cachen (keine 401/Fehler).
-    e.respondWith(
-      fetch(req)
-        .then((res) => {
-          if (res.ok) caches.open(CACHE).then((c) => c.put(req, res.clone()));
-          return res;
-        })
-        .catch(() => caches.match(req))
-    );
-    return;
-  }
+  // S8: Authentifizierte API-Antworten NIE cachen (sonst liest die nächste Person
+  // auf einem geteilten Gerät gecachte Reise-/Kontodaten offline). /api/ läuft
+  // ausschließlich über das Netz – keine CacheStorage-Beteiligung.
+  if (url.pathname.startsWith("/api/")) return;
 
   // App-Shell: Netzwerk zuerst (immer die neueste Version wenn online), Cache nur
   // als Offline-Fallback. Verhindert, dass ein altes app.js "hängen bleibt".

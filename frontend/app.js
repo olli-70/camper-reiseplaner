@@ -1541,6 +1541,14 @@ async function submitAuth() {
 
 async function doLogout() {
   try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
+  // S8: beim Abmelden alle Caches leeren (falls ein alter SW noch etwas hielt),
+  // damit auf geteilten Geräten keine Daten zurückbleiben.
+  try {
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch {}
   location.reload();
 }
 
