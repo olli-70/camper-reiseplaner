@@ -1,6 +1,7 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import List, Optional
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 # Erlaubte Stopp-Status (Marker-Farbe im Frontend danach)
@@ -8,7 +9,10 @@ STATUS_VALUES = {"geplant", "besucht", "reserviert"}
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    # C5: datetime.utcnow() ist deprecated (Py3.12). now(timezone.utc) ist die
+    # empfohlene Variante; wir speichern weiter NAIV-UTC (.replace(tzinfo=None)),
+    # damit DB-/API-Serialisierung Byte-für-Byte identisch bleibt.
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # ---- Tabellen ----------------------------------------------------------------
@@ -21,6 +25,8 @@ class User(SQLModel, table=True):
     # S6: Session-Widerruf. Wird in die Session mitsigniert; bei Passwortwechsel
     # oder "überall abmelden" erhöht -> alle alten Sessions werden ungültig.
     token_version: int = Field(default=0)
+    # Usage: letzter aktiver UTC-Tag (für die Zählung „aktive Tage"/Monat).
+    last_seen: Optional[date] = None
     created_at: datetime = Field(default_factory=_now)
 
 
@@ -65,6 +71,19 @@ class Stop(SQLModel, table=True):
     reserviert_bis: Optional[datetime] = None  # Ab (Abfahrt)
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
+
+
+class UsageCounter(SQLModel, table=True):
+    """Aggregierte Nutzungs-/API-Zähler pro (Nutzer, Monat, Metrik). DSGVO-arm:
+    NUR Summen pro Monat – keine Einzel-Events, keine Zeitstempel je Aktion, keine
+    Koordinaten/IPs. Increment via UPSERT (siehe app/usage.py)."""
+    __table_args__ = (UniqueConstraint("user_id", "period", "metric",
+                                        name="uq_usage_user_period_metric"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    period: str = Field(index=True)   # 'YYYY-MM' (UTC)
+    metric: str = Field(index=True)   # login, active_day, trip_created, stop_created, api_*, campsites
+    count: int = 0
 
 
 # ---- Ein-/Ausgabe-Schemata ---------------------------------------------------
@@ -121,3 +140,32 @@ class StopUpdate(SQLModel):
 class StopOrder(SQLModel):
     # Neue Reihenfolge als Liste von Stopp-IDs (Index = reihenfolge)
     order: List[int]
+
+
+# ---- C2: Request-Modelle für Auth- und Proxy-Endpoints (Input-Validierung) ---
+class LoginRequest(SQLModel):
+    email: str
+    password: str
+
+
+class SetPasswordRequest(SQLModel):
+    email: str
+    code: str
+    password: str
+
+
+class LatLng(SQLModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+
+
+class DirectionsRequest(SQLModel):
+    origin: LatLng
+    destination: LatLng
+    waypoints: List[LatLng] = []
+
+
+class CampsitesRequest(SQLModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    radius: int = 25000

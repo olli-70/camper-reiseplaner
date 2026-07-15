@@ -10,7 +10,8 @@ os.environ["SESSION_SECRET"] = "test-session-secret-0123456789abcdef"  # >=32 (S
 os.environ["COOKIE_SECURE"] = "0"  # TestClient läuft über http
 os.environ["LOGIN_RATELIMIT"] = "1000"  # im Test nicht limitieren
 CODES = {"a@test.de": "code-a", "b@test.de": "code-b", "c@test.de": "code-c",
-         "d@test.de": "code-d"}  # d nur für den Session-Revocation-Test (S6)
+         "d@test.de": "code-d",   # d nur für den Session-Revocation-Test (S6)
+         "e@test.de": "code-e"}   # e nur für den Usage-/Admin-Test
 _MEMBERS = [{"email": e, "code": c} for e, c in CODES.items()]
 os.environ["MEMBERS"] = json.dumps(_MEMBERS)
 
@@ -279,7 +280,7 @@ def test_trip_and_stop_lifecycle():
 # ---- Umkreis-Stellplätze (OSM/Overpass, server-seitig proxied) ---------------
 # Aufgezeichneter Overpass-Response (node + way mit center + unbrauchbares
 # Element) -> wir mocken _overpass_query, damit im Test NIE echt Overpass läuft.
-import app.main as main_mod  # noqa: E402
+import app.routers.campsites as campsites_mod  # noqa: E402  (C1: _overpass_query lebt jetzt hier)
 from fastapi import HTTPException  # noqa: E402
 
 _RECORDED_OVERPASS = {
@@ -308,7 +309,7 @@ def test_campsites_nearby_parses_overpass(monkeypatch):
         assert "out center" in query            # Center für ways/relations
         return _RECORDED_OVERPASS
 
-    monkeypatch.setattr(main_mod, "_overpass_query", fake_overpass)
+    monkeypatch.setattr(campsites_mod, "_overpass_query", fake_overpass)
     r = client.post("/api/campsites-nearby", json={"lat": 52.51, "lng": 13.41})
     assert r.status_code == 200, r.text
     body = r.json()
@@ -332,7 +333,7 @@ def test_campsites_nearby_radius_clamped(monkeypatch):
         captured["q"] = query
         return {"elements": []}
 
-    monkeypatch.setattr(main_mod, "_overpass_query", fake_overpass)
+    monkeypatch.setattr(campsites_mod, "_overpass_query", fake_overpass)
     r = client.post("/api/campsites-nearby",
                     json={"lat": 48.1, "lng": 11.6, "radius": 999999})
     assert r.status_code == 200
@@ -350,7 +351,7 @@ def test_campsites_nearby_overpass_down(monkeypatch):
     async def boom(query):
         raise HTTPException(502, "Overpass nicht erreichbar")
 
-    monkeypatch.setattr(main_mod, "_overpass_query", boom)
+    monkeypatch.setattr(campsites_mod, "_overpass_query", boom)
     r = client.post("/api/campsites-nearby", json={"lat": 40.0, "lng": 9.0})
     assert r.status_code == 502
 
@@ -381,3 +382,55 @@ def test_logout_all_revokes_other_sessions():
     # c2 meldet sich "überall" ab -> token_version++ -> c1s Cookie wird ungültig
     assert c2.post("/api/auth/logout-all").status_code == 204
     assert c1.get("/api/auth/me").status_code == 401
+
+
+# ---- Usage-Zählung + Admin-Auswertung (Variante A) --------------------------
+def test_usage_counting_and_admin_gate():
+    from sqlmodel import Session, select
+
+    from app.db import engine
+    from app.models import User
+
+    # normaler Nutzer (a) erzeugt Aktivität -> Zähler
+    tid = client.post("/api/trips", json={"name": "UsageTrip"}).json()["id"]
+    assert client.post(f"/api/trips/{tid}/stops",
+                       json={"name": "S", "lat": 1, "lng": 2}).status_code == 201
+    # Nicht-Admin darf die Auswertung NICHT sehen
+    assert client.get("/api/admin/usage").status_code == 403
+
+    # e@test.de zum Admin machen
+    admin = _client("e@test.de")
+    with Session(engine) as s:
+        u = s.exec(select(User).where(User.email == "e@test.de")).first()
+        u.is_admin = True
+        s.add(u)
+        s.commit()
+    r = admin.get("/api/admin/usage")
+    assert r.status_code == 200
+    body = r.json()
+    metrics = {row["metric"] for row in body["rows"]}
+    assert "trip_created" in metrics
+    assert "stop_created" in metrics
+    assert "login" in metrics            # set-password/login haben gezählt
+    assert "cost_estimate_eur" in body   # Kostenschätzung vorhanden
+    # CSV-Export für Admin
+    csv_resp = admin.get("/api/admin/usage.csv")
+    assert csv_resp.status_code == 200
+    assert "text/csv" in csv_resp.headers["content-type"]
+
+
+# ---- C2/C7: Input-Validierung der Proxy-Endpoints (422 statt 500) -----------
+def test_proxy_input_validation():
+    # directions ohne origin/destination -> Pydantic 422 (nicht 500)
+    assert client.post("/api/directions", json={}).status_code == 422
+    # directions mit unvollständigem Punkt -> 422
+    assert client.post("/api/directions",
+                       json={"origin": {"lat": 1}, "destination": {"lat": 2, "lng": 3}}
+                       ).status_code == 422
+    # campsites: lat außerhalb Bereich -> 422; radius als Unsinn -> 422
+    assert client.post("/api/campsites-nearby",
+                       json={"lat": 999, "lng": 1}).status_code == 422
+    assert client.post("/api/campsites-nearby",
+                       json={"lat": 1, "lng": 2, "radius": "abc"}).status_code == 422
+    # geocode ohne q -> 422 (Pflicht-Query)
+    assert client.get("/api/geocode").status_code == 422
