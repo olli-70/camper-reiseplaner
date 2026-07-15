@@ -69,6 +69,8 @@ def login(payload: dict, request: Request, session: Session = Depends(get_sessio
         raise HTTPException(401, "E-Mail oder Passwort falsch.")
     request.session["uid"] = user.id
     request.session["tv"] = user.token_version or 0  # S6
+    from .. import usage
+    usage.bump(user.id, "login")
     return {"email": user.email, "is_admin": user.is_admin}
 
 

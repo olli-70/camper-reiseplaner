@@ -19,7 +19,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import __version__
 from .db import init_db
-from .routers import auth, campsites, health, maps, stops, trips
+from .routers import admin, auth, campsites, health, maps, stops, trips
 from .security import _seed_admin, reconcile_members, require_session_secret
 
 
@@ -84,7 +84,7 @@ async def _security_headers(request: Request, call_next):
 
 
 # ---- Router je Domäne (C1) ---------------------------------------------------
-for _module in (health, auth, maps, campsites, trips, stops):
+for _module in (health, auth, maps, campsites, trips, stops, admin):
     app.include_router(_module.router)
 
 

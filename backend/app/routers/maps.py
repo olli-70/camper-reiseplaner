@@ -4,6 +4,7 @@ erreicht den Browser NIE; Proxy-Endpoints sind rate-limited (S3). (C1)"""
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from .. import usage
 from ..clients import _GKEY, _GREFERER, _encode_polyline, _gget
 from ..deps import get_current_user
 from ..models import User
@@ -19,6 +20,7 @@ async def directions(payload: dict, request: Request,
     _proxy_rate_limit(request, user)   # S3: Kosten-/Abuse-Schutz
     if not _GKEY:
         raise HTTPException(503, "Kein Google-Key konfiguriert")
+    usage.bump(user.id, "api_directions")
     o, d = payload.get("origin"), payload.get("destination")
     if not o or not d:
         raise HTTPException(422, "origin/destination fehlen")
@@ -49,6 +51,7 @@ async def places(payload: dict, request: Request,
     _proxy_rate_limit(request, user)   # S3: Kosten-/Abuse-Schutz
     if not _GKEY:
         raise HTTPException(503, "Kein Google-Key konfiguriert")
+    usage.bump(user.id, "api_places")
     q = (payload.get("textQuery") or "").strip()
     if not q:
         return {"places": []}
@@ -96,6 +99,7 @@ async def geocode(q: str, request: Request,
     _proxy_rate_limit(request, user)   # S3: Kosten-/Abuse-Schutz
     if not _GKEY:
         raise HTTPException(503, "Kein Google-Key konfiguriert")
+    usage.bump(user.id, "api_geocode")
     data = await _gget(
         "https://maps.googleapis.com/maps/api/geocode/json", {"address": q, "language": "de"})
     out = []

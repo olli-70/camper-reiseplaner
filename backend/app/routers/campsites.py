@@ -37,6 +37,8 @@ async def campsites_nearby(payload: dict, user: User = Depends(get_current_user)
         raise HTTPException(422, "lat/lng fehlen oder sind ungültig")
     if not (-90 <= lat <= 90 and -180 <= lng <= 180):
         raise HTTPException(422, "lat/lng außerhalb des gültigen Bereichs")
+    from .. import usage
+    usage.bump(user.id, "campsites")  # gratis (Overpass), aber fürs Aktivitätsbild
     radius = max(1000, min(int(payload.get("radius", 25000)), 50000))
 
     key = f"{round(lat, 3)},{round(lng, 3)},{radius}"

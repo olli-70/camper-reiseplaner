@@ -10,7 +10,8 @@ os.environ["SESSION_SECRET"] = "test-session-secret-0123456789abcdef"  # >=32 (S
 os.environ["COOKIE_SECURE"] = "0"  # TestClient läuft über http
 os.environ["LOGIN_RATELIMIT"] = "1000"  # im Test nicht limitieren
 CODES = {"a@test.de": "code-a", "b@test.de": "code-b", "c@test.de": "code-c",
-         "d@test.de": "code-d"}  # d nur für den Session-Revocation-Test (S6)
+         "d@test.de": "code-d",   # d nur für den Session-Revocation-Test (S6)
+         "e@test.de": "code-e"}   # e nur für den Usage-/Admin-Test
 _MEMBERS = [{"email": e, "code": c} for e, c in CODES.items()]
 os.environ["MEMBERS"] = json.dumps(_MEMBERS)
 
@@ -381,3 +382,38 @@ def test_logout_all_revokes_other_sessions():
     # c2 meldet sich "überall" ab -> token_version++ -> c1s Cookie wird ungültig
     assert c2.post("/api/auth/logout-all").status_code == 204
     assert c1.get("/api/auth/me").status_code == 401
+
+
+# ---- Usage-Zählung + Admin-Auswertung (Variante A) --------------------------
+def test_usage_counting_and_admin_gate():
+    from sqlmodel import Session, select
+
+    from app.db import engine
+    from app.models import User
+
+    # normaler Nutzer (a) erzeugt Aktivität -> Zähler
+    tid = client.post("/api/trips", json={"name": "UsageTrip"}).json()["id"]
+    assert client.post(f"/api/trips/{tid}/stops",
+                       json={"name": "S", "lat": 1, "lng": 2}).status_code == 201
+    # Nicht-Admin darf die Auswertung NICHT sehen
+    assert client.get("/api/admin/usage").status_code == 403
+
+    # e@test.de zum Admin machen
+    admin = _client("e@test.de")
+    with Session(engine) as s:
+        u = s.exec(select(User).where(User.email == "e@test.de")).first()
+        u.is_admin = True
+        s.add(u)
+        s.commit()
+    r = admin.get("/api/admin/usage")
+    assert r.status_code == 200
+    body = r.json()
+    metrics = {row["metric"] for row in body["rows"]}
+    assert "trip_created" in metrics
+    assert "stop_created" in metrics
+    assert "login" in metrics            # set-password/login haben gezählt
+    assert "cost_estimate_eur" in body   # Kostenschätzung vorhanden
+    # CSV-Export für Admin
+    csv_resp = admin.get("/api/admin/usage.csv")
+    assert csv_resp.status_code == 200
+    assert "text/csv" in csv_resp.headers["content-type"]

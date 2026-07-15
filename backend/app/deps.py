@@ -22,6 +22,9 @@ def get_current_user(request: Request, session: Session = Depends(get_session)) 
     if request.session.get("tv") != (user.token_version or 0):
         request.session.clear()
         raise HTTPException(401, "Sitzung abgelaufen – bitte neu anmelden.")
+    # Usage: aktiver Tag (best-effort, max. 1×/Tag/Nutzer, bricht nie den Request).
+    from .usage import touch_active_day
+    touch_active_day(session, user)
     return user
 
 

@@ -51,6 +51,8 @@ def create_trip(
     session.add(trip)
     session.commit()
     session.refresh(trip)
+    from .. import usage
+    usage.bump(user.id, "trip_created")
     return trip
 
 

@@ -1474,6 +1474,9 @@ document.getElementById("exportBtn").onclick = () => {
   window.location.href = "/api/export.csv";
 };
 document.getElementById("logoutBtn").onclick = doLogout;
+document.getElementById("usageBtn").onclick = openUsage;
+document.getElementById("usageClose").onclick = () =>
+  document.getElementById("usageModal").classList.add("hidden");
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) =>
@@ -1482,13 +1485,18 @@ function escapeHtml(s) {
 
 // ---- Authentifizierung (Login / Registrierung per E-Mail) -------------------
 let currentUserEmail = null;
+let currentUserIsAdmin = false;
 let authMode = "login";
 let appStarted = false;
 
 async function checkAuth() {
   try {
     const r = await fetch("/api/auth/me");
-    if (r.ok) { currentUserEmail = (await r.json()).email; return true; }
+    if (r.ok) {
+      const me = await r.json();
+      currentUserEmail = me.email; currentUserIsAdmin = !!me.is_admin;
+      return true;
+    }
   } catch { /* offline etc. */ }
   return false;
 }
@@ -1534,9 +1542,46 @@ async function submitAuth() {
     err.textContent = msg;
     return;
   }
-  currentUserEmail = (await r.json()).email;
+  const authed = await r.json();
+  currentUserEmail = authed.email; currentUserIsAdmin = !!authed.is_admin;
   hideLogin();
   await startApp();
+}
+
+// ---- Admin: Nutzungs-/Kosten-Auswertung -------------------------------------
+async function openUsage() {
+  document.getElementById("profileMenu").classList.add("hidden");
+  const modal = document.getElementById("usageModal");
+  const box = document.getElementById("usageBody");
+  box.textContent = "Lade …";
+  modal.classList.remove("hidden");
+  let data;
+  try {
+    data = await api.get("/api/admin/usage");
+  } catch (e) { box.textContent = "Konnte Auswertung nicht laden: " + e.message; return; }
+  const rows = data.rows || [];
+  if (!rows.length) { box.innerHTML = "<em>Noch keine Nutzungsdaten.</em>"; }
+  else {
+    let html = "<table class='usage-table'><thead><tr><th>Nutzer</th><th>Monat</th>"
+      + "<th>Metrik</th><th>Anzahl</th></tr></thead><tbody>";
+    for (const r of rows) {
+      html += `<tr><td>${escapeHtml(r.email)}</td><td>${escapeHtml(r.period)}</td>`
+        + `<td>${escapeHtml(r.metric)}</td><td class="num">${r.count}</td></tr>`;
+    }
+    html += "</tbody></table>";
+    const cost = data.cost_estimate_eur || {};
+    const emails = Object.keys(cost);
+    if (emails.length) {
+      html += "<h4 class='usage-cost-h'>Geschätzte API-Kosten</h4><table class='usage-table'>"
+        + "<tbody>";
+      for (const e of emails.sort()) {
+        html += `<tr><td>${escapeHtml(e)}</td><td class="num">${cost[e].toFixed(2)} €</td></tr>`;
+      }
+      html += "</tbody></table>";
+    }
+    if (data.note) html += `<p class="usage-hint">${escapeHtml(data.note)}</p>`;
+    box.innerHTML = html;
+  }
 }
 
 async function doLogout() {
@@ -1560,6 +1605,8 @@ function updateUserLabel() {
   if (btn) btn.title = currentUserEmail ? "Angemeldet als " + currentUserEmail : "Profil";
   const head = document.getElementById("profileMenuEmail");
   if (head) head.textContent = label;
+  const usageBtn = document.getElementById("usageBtn");
+  if (usageBtn) usageBtn.classList.toggle("hidden", !currentUserIsAdmin);
 }
 
 // App erst NACH erfolgreicher Anmeldung starten (Karte/Daten brauchen Auth).

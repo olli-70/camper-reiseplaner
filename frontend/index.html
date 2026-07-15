@@ -24,6 +24,7 @@
       <div id="profileMenu" class="hidden">
         <div id="profileMenuEmail" class="menu-head"></div>
         <button id="exportBtn" class="menu-item">⬇ Reisen als CSV</button>
+        <button id="usageBtn" class="menu-item hidden">📊 Nutzung (Admin)</button>
         <button id="logoutBtn" class="menu-item">⎋ Abmelden</button>
       </div>
     </span>
@@ -97,6 +98,20 @@
         <button id="c_ok" class="primary">Ja, hinzufügen</button>
       </div>
       <button id="c_nearby" class="nearby-alt" title="Wohnmobil-Stellplätze im Umkreis von 25 km um diesen Punkt anzeigen (nichts speichern)">🏕 Stellplätze in der Nähe anzeigen</button>
+    </div>
+  </div>
+
+  <!-- Admin: Nutzungs-/Kosten-Auswertung (nur für Admin sichtbar) -->
+  <div id="usageModal" class="hidden">
+    <div class="form-card usage-card">
+      <h3>Nutzung &amp; API-Kosten (Admin)</h3>
+      <p class="usage-hint">Aggregierte Monats-Zähler pro Nutzer (keine Einzel-Events).
+        Kosten = Schätzung aus Calls über Free-Tier × SKU-Preis.</p>
+      <div id="usageBody">Lade …</div>
+      <div class="form-actions">
+        <a id="usageCsv" class="ghost" href="/api/admin/usage.csv">⬇ CSV</a>
+        <button id="usageClose" class="primary">Schließen</button>
+      </div>
     </div>
   </div>
 

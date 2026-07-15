@@ -62,6 +62,8 @@ def create_stop(
     _touch_trip(session, trip_id)
     session.commit()
     session.refresh(stop)
+    from .. import usage
+    usage.bump(user.id, "stop_created")
     return stop
 
 
