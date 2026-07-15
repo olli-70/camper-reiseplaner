@@ -28,6 +28,9 @@ async def lifespan(app: FastAPI):
     init_db()
     _seed_admin()
     yield
+    # C3: gemeinsamen httpx-Client sauber schließen.
+    from .clients import aclose_client
+    await aclose_client()
 
 
 app = FastAPI(title="Camper-Reiseplaner", version=__version__, lifespan=lifespan)

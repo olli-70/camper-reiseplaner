@@ -5,7 +5,7 @@ from sqlmodel import Session, select
 
 from ..db import get_session
 from ..deps import get_current_user
-from ..models import User
+from ..models import LoginRequest, SetPasswordRequest, User
 from ..ratelimit import _rate_limit
 from ..security import (
     _DUMMY_HASH,
@@ -20,14 +20,15 @@ router = APIRouter()
 
 
 @router.post("/api/auth/set-password")
-def set_password(payload: dict, request: Request, session: Session = Depends(get_session)):
+def set_password(data: SetPasswordRequest, request: Request,
+                 session: Session = Depends(get_session)):
     """Passwort per persönlichem Einmalcode setzen (Erst-Anmeldung ODER Reset).
     Der Code stammt aus der Vault-`member`-Liste (email->code) und ist EINMALIG:
     nach Benutzung ungültig, bis ein neuer Code hinterlegt wird."""
     _rate_limit(request)
-    email = (payload.get("email") or "").strip().lower()
-    code = (payload.get("code") or "").strip()
-    pw = payload.get("password") or ""
+    email = (data.email or "").strip().lower()
+    code = (data.code or "").strip()
+    pw = data.password or ""
     members = _members()
     if not code or email not in members or members[email] != code:
         raise HTTPException(403, "E-Mail und Einmalcode passen nicht (oder Code abgelaufen).")
@@ -54,10 +55,10 @@ def set_password(payload: dict, request: Request, session: Session = Depends(get
 
 
 @router.post("/api/auth/login")
-def login(payload: dict, request: Request, session: Session = Depends(get_session)):
+def login(data: LoginRequest, request: Request, session: Session = Depends(get_session)):
     _rate_limit(request)
-    email = (payload.get("email") or "").strip().lower()
-    pw = payload.get("password") or ""
+    email = (data.email or "").strip().lower()
+    pw = data.password or ""
     # S7: keine Account-Enumeration – ob E-Mail nicht freigeschaltet, Nutzer
     # unbekannt oder Passwort falsch: IMMER dieselbe 401-Antwort UND genau eine
     # bcrypt-Prüfung (gegen Dummy-Hash, wenn kein Nutzer) für konstante Zeit.

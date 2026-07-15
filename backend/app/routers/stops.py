@@ -1,6 +1,6 @@
 """Stopps/POIs einer Reise (anlegen, sortieren, ändern, löschen). (C1)"""
 
-from datetime import datetime
+from ..models import _now as _utcnow_naive  # C5: naiv-UTC, nicht deprecated
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -26,7 +26,7 @@ def _touch_trip(session: Session, trip_id: int) -> None:
     Stopp hinzukommt/sich ändert. Das Frontend wählt darüber die Default-Reise."""
     trip = session.get(Trip, trip_id)
     if trip:
-        trip.updated_at = datetime.utcnow()
+        trip.updated_at = _utcnow_naive()
         session.add(trip)
 
 
@@ -107,7 +107,7 @@ def update_stop(
         _validate_status(patch["status"])
     for key, value in patch.items():
         setattr(stop, key, value)
-    stop.updated_at = datetime.utcnow()
+    stop.updated_at = _utcnow_naive()
     session.add(stop)
     _touch_trip(session, stop.trip_id)
     session.commit()

@@ -1,37 +1,33 @@
 """Google-Web-Dienste server-seitig (Directions/Places/Geocoding). Der Google-Key
 erreicht den Browser NIE; Proxy-Endpoints sind rate-limited (S3). (C1)"""
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .. import usage
-from ..clients import _GKEY, _GREFERER, _encode_polyline, _gget
+from ..clients import _GKEY, _GREFERER, _encode_polyline, _gget, _gpost
 from ..deps import get_current_user
-from ..models import User
+from ..models import DirectionsRequest, User
 from ..ratelimit import _proxy_rate_limit
 
 router = APIRouter()
 
 
 @router.post("/api/directions")
-async def directions(payload: dict, request: Request,
+async def directions(req: DirectionsRequest, request: Request,
                      user: User = Depends(get_current_user)) -> dict:
-    """Etappen-Routing (eine Etappe: origin, destination, waypoints[])."""
+    """Etappen-Routing (eine Etappe: origin, destination, waypoints[]). C2: origin/
+    destination/waypoints werden per Pydantic validiert (fehlend/ungültig -> 422)."""
     _proxy_rate_limit(request, user)   # S3: Kosten-/Abuse-Schutz
     if not _GKEY:
         raise HTTPException(503, "Kein Google-Key konfiguriert")
     usage.bump(user.id, "api_directions")
-    o, d = payload.get("origin"), payload.get("destination")
-    if not o or not d:
-        raise HTTPException(422, "origin/destination fehlen")
     params = {
-        "origin": f"{o['lat']},{o['lng']}",
-        "destination": f"{d['lat']},{d['lng']}",
+        "origin": f"{req.origin.lat},{req.origin.lng}",
+        "destination": f"{req.destination.lat},{req.destination.lng}",
         "mode": "driving", "language": "de",
     }
-    wps = payload.get("waypoints") or []
-    if wps:
-        params["waypoints"] = "|".join(f"{w['lat']},{w['lng']}" for w in wps)
+    if req.waypoints:
+        params["waypoints"] = "|".join(f"{w.lat},{w.lng}" for w in req.waypoints)
     data = await _gget("https://maps.googleapis.com/maps/api/directions/json", params)
     routes = data.get("routes") or []
     if data.get("status") != "OK" or not routes:
@@ -75,10 +71,7 @@ async def places(payload: dict, request: Request,
         "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location",
         "Referer": _GREFERER,
     }
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        r = await client.post(
-            "https://places.googleapis.com/v1/places:searchText", json=body, headers=headers)
-    data = r.json()
+    data = await _gpost("https://places.googleapis.com/v1/places:searchText", body, headers)
     out = []
     for p in data.get("places", []):
         loc = p.get("location") or {}

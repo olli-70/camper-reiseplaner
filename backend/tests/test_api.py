@@ -417,3 +417,20 @@ def test_usage_counting_and_admin_gate():
     csv_resp = admin.get("/api/admin/usage.csv")
     assert csv_resp.status_code == 200
     assert "text/csv" in csv_resp.headers["content-type"]
+
+
+# ---- C2/C7: Input-Validierung der Proxy-Endpoints (422 statt 500) -----------
+def test_proxy_input_validation():
+    # directions ohne origin/destination -> Pydantic 422 (nicht 500)
+    assert client.post("/api/directions", json={}).status_code == 422
+    # directions mit unvollständigem Punkt -> 422
+    assert client.post("/api/directions",
+                       json={"origin": {"lat": 1}, "destination": {"lat": 2, "lng": 3}}
+                       ).status_code == 422
+    # campsites: lat außerhalb Bereich -> 422; radius als Unsinn -> 422
+    assert client.post("/api/campsites-nearby",
+                       json={"lat": 999, "lng": 1}).status_code == 422
+    assert client.post("/api/campsites-nearby",
+                       json={"lat": 1, "lng": 2, "radius": "abc"}).status_code == 422
+    # geocode ohne q -> 422 (Pflicht-Query)
+    assert client.get("/api/geocode").status_code == 422

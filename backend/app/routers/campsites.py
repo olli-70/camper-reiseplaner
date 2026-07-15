@@ -3,11 +3,12 @@ CORS im Browser, kontrollierte Overpass-Last + Etikette, kurzer Cache). (C1)"""
 
 import time
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
+from .. import usage
 from ..clients import _overpass_query
 from ..deps import get_current_user
-from ..models import User
+from ..models import CampsitesRequest, User
 
 router = APIRouter()
 
@@ -24,22 +25,17 @@ _CAMPSITE_TAGS = (
 
 
 @router.post("/api/campsites-nearby")
-async def campsites_nearby(payload: dict, user: User = Depends(get_current_user)) -> dict:
+async def campsites_nearby(req: CampsitesRequest,
+                           user: User = Depends(get_current_user)) -> dict:
     """Stellplätze (OSM ``tourism=caravan_site``) im Umkreis eines Punktes.
 
     Eingabe ``{lat, lng, radius?}`` (radius in Metern, Default 25000, max 50000).
+    C2: lat/lng/radius werden per Pydantic validiert (fehlend/ungültig/Bereich -> 422).
     Rückgabe ``{count, radius, campsites:[{id, lat, lng, name, tags}]}``.
     """
-    try:
-        lat = float(payload["lat"])
-        lng = float(payload["lng"])
-    except (KeyError, TypeError, ValueError):
-        raise HTTPException(422, "lat/lng fehlen oder sind ungültig")
-    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
-        raise HTTPException(422, "lat/lng außerhalb des gültigen Bereichs")
-    from .. import usage
+    lat, lng = req.lat, req.lng
     usage.bump(user.id, "campsites")  # gratis (Overpass), aber fürs Aktivitätsbild
-    radius = max(1000, min(int(payload.get("radius", 25000)), 50000))
+    radius = max(1000, min(req.radius, 50000))
 
     key = f"{round(lat, 3)},{round(lng, 3)},{radius}"
     now = time.time()

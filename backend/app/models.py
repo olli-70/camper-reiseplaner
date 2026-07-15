@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy import UniqueConstraint
@@ -9,7 +9,10 @@ STATUS_VALUES = {"geplant", "besucht", "reserviert"}
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    # C5: datetime.utcnow() ist deprecated (Py3.12). now(timezone.utc) ist die
+    # empfohlene Variante; wir speichern weiter NAIV-UTC (.replace(tzinfo=None)),
+    # damit DB-/API-Serialisierung Byte-für-Byte identisch bleibt.
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # ---- Tabellen ----------------------------------------------------------------
@@ -137,3 +140,32 @@ class StopUpdate(SQLModel):
 class StopOrder(SQLModel):
     # Neue Reihenfolge als Liste von Stopp-IDs (Index = reihenfolge)
     order: List[int]
+
+
+# ---- C2: Request-Modelle für Auth- und Proxy-Endpoints (Input-Validierung) ---
+class LoginRequest(SQLModel):
+    email: str
+    password: str
+
+
+class SetPasswordRequest(SQLModel):
+    email: str
+    code: str
+    password: str
+
+
+class LatLng(SQLModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+
+
+class DirectionsRequest(SQLModel):
+    origin: LatLng
+    destination: LatLng
+    waypoints: List[LatLng] = []
+
+
+class CampsitesRequest(SQLModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    radius: int = 25000

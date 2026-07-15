@@ -1,6 +1,6 @@
 """Reisen (Trips) inkl. CSV-Export. Alles user-scoped (Fremdzugriff -> 404). (C1)"""
 
-from datetime import datetime
+from ..models import _now as _utcnow_naive  # C5: naiv-UTC, nicht deprecated
 from typing import List
 
 from fastapi import APIRouter, Depends
@@ -75,7 +75,7 @@ def update_trip(
     trip = _owned_trip(session, trip_id, user)
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(trip, key, value)
-    trip.updated_at = datetime.utcnow()
+    trip.updated_at = _utcnow_naive()
     session.add(trip)
     session.commit()
     session.refresh(trip)
