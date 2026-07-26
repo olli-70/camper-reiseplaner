@@ -72,6 +72,9 @@ function initMap() {
     zoom: 4,
     // Q4: Ein-Finger-Pan zuverlässig (Default "auto" ist auf Touch unbestimmt).
     gestureHandling: "greedy",
+    // Step 2 Sizing: auf dem Phone die Google-Standard-Controls (Zoom, Kartentyp)
+    // kleiner/dezenter (Default 40) – wirkt sonst wuchtig. Desktop bleibt 40.
+    controlSize: window.matchMedia("(max-width: 640px)").matches ? 34 : 40,
     // Kartentyp-Auswahl (Karte / Satellit / Gelände) als kompaktes Dropdown
     mapTypeControl: true,
     mapTypeControlOptions: {
@@ -1459,8 +1462,22 @@ document.getElementById("newTripBtn").onclick = async () => {
 buildForm(); // Formularfelder aus STOP_FIELDS erzeugen
 document.getElementById("f_cancel").onclick = closeForm;
 document.getElementById("f_save").onclick = saveForm;
-document.getElementById("panelToggle").onclick = () =>
-  document.getElementById("panel").classList.toggle("collapsed");
+// M1: Auf dem Phone ist das Panel ein Bottom-Sheet. Der ☰-Griff zykliert
+// Peek (~45dvh) -> Full (~88dvh) -> Collapsed (nur Griff) -> Peek. Am Desktop
+// bleibt es das simple Ein-/Ausklappen (collapsed blendet nur den Body aus).
+document.getElementById("panelToggle").onclick = () => {
+  const panel = document.getElementById("panel");
+  const isMobile = window.matchMedia("(max-width: 640px)").matches;
+  if (!isMobile) { panel.classList.toggle("collapsed"); return; }
+  if (panel.classList.contains("collapsed")) {
+    panel.classList.remove("collapsed", "sheet-full");      // -> Peek
+  } else if (panel.classList.contains("sheet-full")) {
+    panel.classList.remove("sheet-full");
+    panel.classList.add("collapsed");                        // -> Collapsed
+  } else {
+    panel.classList.add("sheet-full");                       // Peek -> Full
+  }
+};
 
 // Auth-UI verdrahten
 document.getElementById("authSubmit").onclick = submitAuth;
