@@ -44,6 +44,9 @@ let routePolylines = [];  // je Etappe eine eigene Linie (zwischen Übernachtung
 let routeSegments = [];   // je Etappe { label, path } – für Etappen-Auswahl der Suche
 let searchMarkers = [];   // temporäre Fund-Pins der Routensuche
 let nearbyMarkers = [];   // Umkreis-Stellplätze (OSM) um einen POI – eigene Pins
+let nearbyInfo = null;    // { count, poiName } des letzten Umkreis-Treffers – damit
+                          // die (nur optisch) eingeklappte Leiste wieder aufklappbar
+                          // ist, OHNE die Marker anzufassen (Ausblenden != Entfernen)
 const STATUS_COLORS = { geplant: "#2563eb", besucht: "#16a34a", reserviert: "#ea580c" };
 // Etappen-Linien wechseln die Farbe (Tagesgrenzen sichtbar); kein Marker-Farbwert
 const SEGMENT_COLORS = ["#0f766e", "#06b6d4"];
@@ -353,25 +356,50 @@ function campsiteIcon() {
   };
 }
 
+// EXPLIZITE, separate Aktion: Stellplatz-Marker von der Karte entfernen (+ Leiste
+// weg). NUR das entfernt die Ergebnisse – niemals das reine Ausblenden der Leiste.
 function clearNearbyCampsites() {
   nearbyMarkers.forEach((m) => m.setMap(null));
   nearbyMarkers = [];
+  nearbyInfo = null;
   const bar = document.getElementById("nearbyBar");
   if (bar) bar.remove();
   if (infoWindow && infoOpenId === "campsite") { infoWindow.close(); infoOpenId = null; }
 }
 
-function showNearbyBar(count, poiName) {
+// Volle Leiste rendern (Text + „Entfernen" + „Ausblenden"). Die beiden Aktionen
+// sind bewusst entkoppelt: Ausblenden lässt die Marker stehen.
+function renderNearbyBar() {
+  if (!nearbyInfo) return;
   let bar = document.getElementById("nearbyBar");
   if (!bar) {
     bar = document.createElement("div");
     bar.id = "nearbyBar";
     document.body.appendChild(bar);
   }
+  bar.classList.remove("collapsed");
   bar.innerHTML =
-    `<span class="nearby-bar-text">🏕 ${count} Stellplätze im 25-km-Umkreis um „${escapeHtml(poiName)}"</span>` +
-    `<button class="nearby-bar-clear" title="Ergebnisse ausblenden">✕ ausblenden</button>`;
-  bar.querySelector(".nearby-bar-clear").onclick = clearNearbyCampsites;
+    `<span class="nearby-bar-text">🏕 ${nearbyInfo.count} Stellplätze im 25-km-Umkreis um „${escapeHtml(nearbyInfo.poiName)}"</span>` +
+    `<button class="nearby-bar-remove" title="Gefundene Stellplätze von der Karte entfernen">🗑 Entfernen</button>` +
+    `<button class="nearby-bar-hide" title="Nur diese Leiste ausblenden – die Stellplätze bleiben auf der Karte">✕</button>`;
+  bar.querySelector(".nearby-bar-remove").onclick = clearNearbyCampsites;  // Marker weg
+  bar.querySelector(".nearby-bar-hide").onclick = collapseNearbyBar;       // nur Leiste weg
+}
+
+// „✕ Ausblenden": Leiste zu einer kleinen Pille einklappen – Marker BLEIBEN.
+// Die Pille klappt die Leiste nur wieder auf (löscht nichts).
+function collapseNearbyBar() {
+  const bar = document.getElementById("nearbyBar");
+  if (!bar || !nearbyInfo) return;
+  bar.classList.add("collapsed");
+  bar.innerHTML =
+    `<button class="nearby-bar-reopen" title="Stellplatz-Info wieder einblenden (die Marker sind weiterhin auf der Karte)">🏕 ${nearbyInfo.count}</button>`;
+  bar.querySelector(".nearby-bar-reopen").onclick = renderNearbyBar;
+}
+
+function showNearbyBar(count, poiName) {
+  nearbyInfo = { count, poiName };
+  renderNearbyBar();
 }
 
 // yes/no/… aus OSM lesbar machen
