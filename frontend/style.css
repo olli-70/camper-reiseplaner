@@ -216,6 +216,14 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
 }
 .drag-handle:active { cursor: grabbing; }
 .stop-name { flex: 1; cursor: pointer; }
+/* B2: ▲/▼-Umsortier-Buttons pro Eintrag (Desktop kompakt; mobil groß, s.u.) */
+.stop-move { display: inline-flex; gap: .15rem; flex: 0 0 auto; }
+.stop-move button {
+  border: 1px solid #ccc; background: #fafafa; border-radius: 6px; color: #333;
+  cursor: pointer; font-size: .8rem; line-height: 1; padding: .15rem .35rem;
+}
+.stop-move button:hover:not(:disabled) { background: #eee; }
+.stop-move button:disabled { opacity: .3; cursor: default; }
 .leg-dist { flex-basis: 100%; font-size: .78rem; color: #666; padding-left: 1.7rem; }
 .leg-dist:empty { display: none; }
 .stop-res { flex-basis: 100%; font-size: .78rem; color: var(--reserviert); padding-left: 1.7rem; }
@@ -294,6 +302,8 @@ body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; ove
   max-height: 90dvh; overflow: auto;
 }
 .form-card h3 { margin: 0 0 .6rem; }
+/* B1: Kopfzeilen-Schließen (✕) – nur im mobilen Vollbild-Formular sichtbar. */
+.form-close { display: none; }
 .form-card label { display: block; font-size: .85rem; margin: .5rem 0; }
 .form-card input, .form-card select, .form-card textarea {
   width: 100%; padding: .4rem; margin-top: .2rem;
@@ -483,5 +493,51 @@ a.ghost { text-decoration: none; display: inline-flex; align-items: center; }
     bottom: calc(45dvh + .6rem);
     max-width: calc(100vw - 1.2rem);
     padding: .3rem .35rem .3rem .55rem; font-size: .78rem; gap: .4rem;
+  }
+
+  /* ---- B2: ▲/▼-Buttons als vollwertige Touch-Ziele (>=44px) --------------- */
+  .stop-move { gap: .3rem; }
+  .stop-move button { min-width: 44px; min-height: 44px; font-size: 1rem; padding: 0; }
+
+  /* ---- B1: Stopp-/Tour-Formular als vollflächiger mobiler Screen ----------
+     Statt zentrierter Desktop-Karte: Vollbild, sticky Kopf mit Titel + ✕,
+     scrollende Felder, sticky Speichern-/Abbrechen-Leiste über der Tastatur. */
+  #stopForm, #tourForm { padding: 0; align-items: stretch; justify-content: stretch; }
+  #stopForm .form-card, #tourForm .form-card {
+    width: 100%; max-width: 100%;
+    height: 100dvh; max-height: 100dvh;
+    border-radius: 0; box-shadow: none;
+    padding: 0 1rem;                       /* seitlicher Rand; Kopf/Fuß ziehen selbst */
+    overflow: auto;                        /* Q3: scrollt, Kopf/Fuß bleiben sticky */
+    display: flex; flex-direction: column; /* Fuß per margin-top:auto nach unten */
+  }
+  /* Sticky-Kopfzeile mit Titel */
+  #stopForm .form-card h3, #tourForm .form-card h3 {
+    position: sticky; top: 0; z-index: 2; margin: 0 -1rem .6rem;
+    padding: max(.8rem, env(safe-area-inset-top)) 3rem .8rem 1rem;
+    background: var(--bg); color: #fff; font-size: 1.1rem;
+  }
+  /* ✕ oben rechts – über der Kopfzeile fixiert, scrollt nicht weg */
+  #stopForm .form-close, #tourForm .form-close {
+    display: flex; align-items: center; justify-content: center;
+    position: fixed; top: max(.35rem, env(safe-area-inset-top)); right: .4rem; z-index: 3;
+    width: 44px; height: 44px; border: none; border-radius: 8px;
+    background: transparent; color: #fff; font-size: 1.2rem; cursor: pointer;
+  }
+  /* Große, gut tippbare Felder */
+  #stopForm .form-card label, #tourForm .form-card label { font-size: .95rem; margin: .7rem 0; }
+  #stopForm .form-card input, #stopForm .form-card select, #stopForm .form-card textarea,
+  #tourForm .form-card input, #tourForm .form-card select, #tourForm .form-card textarea {
+    padding: .7rem; margin-top: .35rem;
+  }
+  #stopForm .form-card textarea { min-height: 5.5rem; }
+  /* Sticky Aktionsleiste unten – bleibt über der iOS-Tastatur; volle Breite */
+  #stopForm .form-actions, #tourForm .form-actions {
+    position: sticky; bottom: 0; margin: auto -1rem 0;  /* auto -> bei kurzem Inhalt nach unten */
+    padding: .7rem 1rem calc(.7rem + env(safe-area-inset-bottom));
+    background: #fff; border-top: 1px solid #eee; box-shadow: 0 -2px 8px #0000001a;
+  }
+  #stopForm .form-actions button, #tourForm .form-actions button {
+    flex: 1; min-height: 48px; font-size: 1rem;
   }
 }

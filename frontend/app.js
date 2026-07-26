@@ -569,10 +569,21 @@ function renderList() {
       resLine = `<span class="stop-res">${lock}${icon}An: ${fmtDMHM(s.reserviert_von) || "?"} · ab: ${fmtDMHM(s.reserviert_bis) || "?"}</span>`;
     }
     const handle = isLocked() ? "" : `<span class="drag-handle" title="Ziehen zum Sortieren">⠿</span>`;
+    // B2: explizite ▲/▼-Buttons (touch-freundlich, zuverlässig auf dem Phone).
+    // Erster Eintrag ohne aktives ▲, letzter ohne aktives ▼. Bei gesperrter Tour
+    // (isLocked) genauso ausgeblendet wie der Drag-Handle.
+    const isFirst = i === 0;
+    const isLast = i === state.route.length - 1;
+    const moveCtrl = isLocked() ? "" :
+      `<span class="stop-move">` +
+        `<button class="move-up" title="Nach oben verschieben"${isFirst ? " disabled" : ""}>▲</button>` +
+        `<button class="move-down" title="Nach unten verschieben"${isLast ? " disabled" : ""}>▼</button>` +
+      `</span>`;
     li.innerHTML =
       handle +
       `<span class="stop-name">${isPoi ? "🚏 " : ""}${escapeHtml(s.name)}</span>` +
       badge +
+      moveCtrl +
       resLine +
       `<span class="leg-dist" data-leg="${i}"></span>` +
       `<span class="leg-warn" data-warn="${i}"></span>`;
@@ -581,6 +592,12 @@ function renderList() {
       map.setZoom(Math.max(map.getZoom(), 11));
       isPoi ? openPoiInfo(s) : openInfo(s);
     };
+    if (!isLocked()) {
+      const up = li.querySelector(".move-up");
+      const down = li.querySelector(".move-down");
+      if (up) up.onclick = (e) => { e.stopPropagation(); moveStop(s.id, -1); };
+      if (down) down.onclick = (e) => { e.stopPropagation(); moveStop(s.id, +1); };
+    }
     ul.appendChild(li);
   });
   if (window.Sortable && !isLocked()) {
@@ -593,10 +610,9 @@ function renderList() {
   computeDistances();
 }
 
-// Reihenfolge nach dem Ziehen übernehmen: Zustand + Backend + km aktualisieren
-async function onReorder() {
-  const ul = document.getElementById("stopList");
-  const ids = [...ul.querySelectorAll("li.stop")].map((li) => Number(li.dataset.id));
+// Gemeinsame Persistenz für JEDE Umsortierung (Drag&Drop UND ▲/▼-Buttons):
+// Zustand nach der neuen id-Reihenfolge ordnen, Backend aktualisieren, neu rendern.
+async function persistOrder(ids) {
   const byId = Object.fromEntries(state.route.map((s) => [s.id, s]));
   state.route = ids.map((id) => byId[id]);
   try {
@@ -605,6 +621,24 @@ async function onReorder() {
     alert("Reihenfolge speichern fehlgeschlagen: " + e.message);
   }
   setTimeout(renderList, 0); // neu aufbauen -> km passend zur neuen Reihenfolge
+}
+
+// Reihenfolge nach dem Ziehen übernehmen (Desktop-Drag&Drop): DOM-Reihenfolge lesen.
+async function onReorder() {
+  const ul = document.getElementById("stopList");
+  const ids = [...ul.querySelectorAll("li.stop")].map((li) => Number(li.dataset.id));
+  await persistOrder(ids);
+}
+
+// B2: Touch-freundliches Umsortieren – verschiebt einen Eintrag um eine Position
+// (dir = -1 hoch / +1 runter) und persistiert über DIESELBE Logik wie Drag&Drop.
+async function moveStop(id, dir) {
+  const ids = state.route.map((s) => s.id);
+  const idx = ids.indexOf(id);
+  const to = idx + dir;
+  if (idx < 0 || to < 0 || to >= ids.length) return; // Grenzfall (erster/letzter): nichts tun
+  [ids[idx], ids[to]] = [ids[to], ids[idx]];
+  await persistOrder(ids);
 }
 
 // Sortier-Zeitpunkt eines Routen-Elements: Übernachtung = An (Ankunft),
@@ -1470,6 +1504,7 @@ document.addEventListener("click", (e) => {
 });
 document.getElementById("tourEditBtn").onclick = openTourForm;
 document.getElementById("t_cancel").onclick = closeTourForm;
+document.getElementById("t_close").onclick = closeTourForm;   // B1: Kopfzeilen-✕ (mobil)
 document.getElementById("t_export").onclick = () => {
   if (!state.tripId) return;
   closeTourForm();
@@ -1489,6 +1524,7 @@ document.getElementById("newTripBtn").onclick = async () => {
 };
 buildForm(); // Formularfelder aus STOP_FIELDS erzeugen
 document.getElementById("f_cancel").onclick = closeForm;
+document.getElementById("f_close").onclick = closeForm;       // B1: Kopfzeilen-✕ (mobil)
 document.getElementById("f_save").onclick = saveForm;
 // M1: Auf dem Phone ist das Panel ein Bottom-Sheet. Der ☰-Griff zykliert
 // Peek (~45dvh) -> Full (~88dvh) -> Collapsed (nur Griff) -> Peek. Am Desktop

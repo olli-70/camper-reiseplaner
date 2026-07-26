@@ -70,6 +70,7 @@
   <!-- Formular für Anlegen/Bearbeiten eines Stopps -->
   <div id="stopForm" class="hidden">
     <div class="form-card">
+      <button id="f_close" class="form-close" type="button" title="Schließen" aria-label="Formular schließen">✕</button>
       <h3 id="formTitle">Stopp</h3>
       <!-- Felder werden aus STOP_FIELDS (app.js) generiert -->
       <div id="formFields"></div>
@@ -118,6 +119,7 @@
   <!-- Tour-Einstellungen: Start-/Zieladresse + Abfahrt/Rückkehr -->
   <div id="tourForm" class="hidden">
     <div class="form-card">
+      <button id="t_close" class="form-close" type="button" title="Schließen" aria-label="Formular schließen">✕</button>
       <h3>Tour-Einstellungen</h3>
       <label>Name <input id="t_name" type="text" /></label>
       <label>Startadresse (z.B. Heimat) <input id="t_start" type="text" placeholder="Straße, Ort" /></label>
