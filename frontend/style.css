@@ -10,11 +10,17 @@
 }
 /* Explizite Farben für ALLE Eingabe-/Auswahlfelder (Sicherheitsnetz gegen
    System-Dark-Mode: dunkler Text auf hellem Grund, inkl. Dropdown-Optionen). */
-input, select, textarea { background-color: #fff; color: #111; }
+/* Q1: iOS zoomt beim Fokus automatisch rein, wenn ein Feld <16px hat. Globale
+   Basis auf 16px; die höher-spezifischen `.form-card`/`.auth-card`-Regeln (die
+   per `font: inherit` sonst die .85rem des Labels erben würden) ziehen unten
+   ebenfalls font-size:16px nach. */
+input, select, textarea { background-color: #fff; color: #111; font-size: 16px; }
 select option { background-color: #fff; color: #111; }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
-body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+/* Q2: 100vh zählt auf iOS-Safari den Bereich hinter der unteren Toolbar mit ->
+   unterer App-Rand unerreichbar. 100dvh folgt der sichtbaren Höhe (Fallback 100vh). */
+body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
 
 #topbar {
   display: flex; align-items: center; gap: .5rem;
@@ -158,6 +164,8 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .sr-actions button {
   border: 1px solid #ccc; background: #fafafa; border-radius: 6px;
   padding: .15rem .45rem; cursor: pointer; font-size: 1rem;
+  /* Q5: ≥44px Touch-Ziel für die Finger-Bedienung */
+  min-height: 44px; min-width: 44px;
 }
 
 #map { flex: 1; width: 100%; }
@@ -232,6 +240,8 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .poi-actions button {
   background: none; border: 1px solid #ccc; border-radius: 6px;
   padding: .1rem .35rem; cursor: pointer; font-size: .85rem;
+  /* Q5: ≥44px Touch-Ziel */
+  min-height: 44px; min-width: 44px;
 }
 .poi-note { flex-basis: 100%; font-size: .8rem; color: #555; padding-left: 1.2rem; white-space: pre-wrap; }
 .poi-time { flex-basis: 100%; font-size: .78rem; color: var(--reserviert); padding-left: 1.2rem; }
@@ -249,7 +259,7 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
 /* Google-Maps-Control "Mein Standort" */
 .locate-btn {
-  margin: 10px; width: 40px; height: 40px;
+  margin: 10px; width: 44px; height: 44px; /* Q5: ≥44px Touch-Ziel */
   background: #fff; border: none; border-radius: 8px;
   box-shadow: 0 1px 4px #0003; cursor: pointer;
   font-size: 1.2rem; color: #333;
@@ -273,24 +283,32 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 #stopForm {
   position: absolute; inset: 0; z-index: 20;
   background: #0006; display: flex; align-items: center; justify-content: center;
+  padding: 1rem; /* Q3: Luft zum Rand, damit die scrollbare Karte nicht anklebt */
 }
 #stopForm.hidden { display: none; }
 .form-card {
   background: #fff; padding: 1rem 1.1rem; border-radius: 12px;
   width: 320px; max-width: 90vw; box-shadow: 0 6px 24px #0005;
+  /* Q3: bei offener iOS-Tastatur darf die Karte scrollen, statt Felder/Buttons
+     hinter der Tastatur verschwinden zu lassen. */
+  max-height: 90dvh; overflow: auto;
 }
 .form-card h3 { margin: 0 0 .6rem; }
 .form-card label { display: block; font-size: .85rem; margin: .5rem 0; }
 .form-card input, .form-card select, .form-card textarea {
   width: 100%; padding: .4rem; margin-top: .2rem;
   border: 1px solid #ccc; border-radius: 8px; font: inherit;
+  font-size: 16px; /* Q1: nach `font: inherit`, sonst iOS-Auto-Zoom (Label = .85rem) */
 }
 .form-card label.check { display: flex; align-items: center; gap: .5rem; margin: .6rem 0; }
 .form-card label.check input { width: auto; margin: 0; }
 .field-row[data-showif] { border-left: 3px solid var(--reserviert); padding-left: .6rem; margin: .3rem 0; }
 .popup .res-info { margin-top: .35rem; font-size: .8rem; color: var(--reserviert); }
 .coords { font-size: .8rem; color: #555; margin: .5rem 0; }
-.form-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: .5rem; }
+/* Q3: Speichern/Abbrechen kleben unten in der (scrollbaren) Karte -> bei offener
+   Tastatur immer erreichbar. bottom:-1rem gleicht das padding-bottom der Karte aus. */
+.form-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: .5rem;
+  position: sticky; bottom: -1rem; background: #fff; padding: .6rem 0; }
 .form-actions .primary { background: var(--bg); color: #fff; border: none; padding: .45rem .9rem; border-radius: 8px; cursor: pointer; }
 .form-actions .ghost { background: #eee; border: none; padding: .45rem .9rem; border-radius: 8px; cursor: pointer; }
 /* Separater Alternativ-Button im „Ort hinzufügen?"-Dialog: Stellplätze-Umkreis
@@ -306,6 +324,7 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 #confirmModal, #tourForm, #usageModal {
   position: absolute; inset: 0; z-index: 25;
   background: #0006; display: flex; align-items: center; justify-content: center;
+  padding: 1rem; /* Q3: Luft zum Rand, damit die scrollbare Karte nicht anklebt */
 }
 #confirmText { margin: .25rem 0 .75rem; line-height: 1.35; }
 
@@ -325,6 +344,8 @@ a.ghost { text-decoration: none; display: inline-flex; align-items: center; }
   position: fixed; inset: 0; z-index: 50;
   background: var(--bg); display: flex; align-items: center; justify-content: center;
   padding: 1rem; padding-top: max(1rem, env(safe-area-inset-top));
+  /* Q2: bei offener iOS-Tastatur scrollbar, damit der Anmelde-Button erreichbar bleibt. */
+  overflow: auto;
 }
 .auth-card {
   background: #fff; border-radius: 14px; box-shadow: 0 8px 30px #0005;
@@ -336,6 +357,7 @@ a.ghost { text-decoration: none; display: inline-flex; align-items: center; }
 .auth-card input {
   width: 100%; padding: .55rem; margin-top: .25rem; box-sizing: border-box;
   border: 1px solid #ccc; border-radius: 8px; font: inherit;
+  font-size: 16px; /* Q1: nach `font: inherit`, sonst iOS-Auto-Zoom (Label = .85rem) */
   background: #fff; color: #111;
 }
 .auth-error { color: #b91c1c; font-size: .82rem; min-height: 1.1em; margin: .3rem 0; }
@@ -357,6 +379,8 @@ a.ghost { text-decoration: none; display: inline-flex; align-items: center; }
 .popup .edit-links button {
   font-size: .75rem; border: 1px solid #ccc; background: #fafafa;
   border-radius: 6px; padding: .2rem .45rem; cursor: pointer;
+  /* Q5: ≥44px Touch-Ziel im Karten-Popup */
+  min-height: 44px; min-width: 44px;
 }
 
 /* Umkreis-Stellplätze (OSM): Auslöser im POI-Popup */

@@ -70,6 +70,8 @@ function initMap() {
   map = new google.maps.Map(document.getElementById("map"), {
     center: { lat: 51, lng: 10 }, // Mitteleuropa
     zoom: 4,
+    // Q4: Ein-Finger-Pan zuverlässig (Default "auto" ist auf Touch unbestimmt).
+    gestureHandling: "greedy",
     // Kartentyp-Auswahl (Karte / Satellit / Gelände) als kompaktes Dropdown
     mapTypeControl: true,
     mapTypeControlOptions: {
