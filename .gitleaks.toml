@@ -1,0 +1,35 @@
+title = "homelab"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "wpa-psk"
+description = "WLAN-Schluessel im Klartext"
+regex = '''(?i)wpa[-_]?psk\s*[=:]?\s+(?P<k>[^\s<#][^\s]{7,})'''
+secretGroup = 1
+keywords = ["wpa"]
+
+# Ausnahmen: nur belegte Fehlalarme (Vault-Pfade, Fingerprints, Platzhalter, vendored Code).
+[[allowlists]]
+description = "Pfade: vendored Collections, UniFi-DNS-Backups (IDs), Grafana-Template"
+paths = [
+  '''(^|/)collections/''',
+  '''(^|/)ansible_collections/''',
+  '''(^|/)Backups/.*static-dns.*\.json$''',
+  '''(^|/)playbooks/docker/templates/grafana\.ini\.j2$''',
+]
+
+[[allowlists]]
+description = "Platzhalter, Vault-Pfade"
+regexes = [
+  '''<[^>]*>''',
+  '''\{\{.*\}\}''',
+  '''\$\{?[A-Za-z_]+\}?''',
+  '''^secret/[A-Za-z0-9_./-]+$''',
+]
+
+[[allowlists]]
+description = "GPG-Fingerprint-Variablen sind oeffentlich"
+regexTarget = "line"
+regexes = ['''(?i)key_fpr''']
